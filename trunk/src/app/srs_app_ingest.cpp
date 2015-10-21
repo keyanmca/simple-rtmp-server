@@ -32,6 +32,7 @@ using namespace std;
 #include <srs_kernel_log.hpp>
 #include <srs_app_ffmpeg.hpp>
 #include <srs_app_pithy_print.hpp>
+#include <srs_kernel_utility.hpp>
 
 // when error, ingester sleep for a while and retry.
 // ingest never sleep a long time, for we must start the stream ASAP.
@@ -53,8 +54,8 @@ SrsIngester::SrsIngester()
 {
     _srs_config->subscribe(this);
     
-    pthread = new SrsThread(this, SRS_AUTO_INGESTER_SLEEP_US);
-    pithy_print = new SrsPithyPrint(SRS_STAGE_INGESTER);
+    pthread = new SrsThread(this, SRS_AUTO_INGESTER_SLEEP_US, true);
+    pithy_print = new SrsPithyPrint(SRS_CONSTS_STAGE_INGESTER);
 }
 
 SrsIngester::~SrsIngester()
@@ -92,8 +93,7 @@ int SrsIngester::parse_ingesters(SrsConfDirective* vhost)
 {
     int ret = ERROR_SUCCESS;
     
-    std::vector<SrsConfDirective*> ingesters;
-    _srs_config->get_ingesters(vhost->arg0(), ingesters);
+    std::vector<SrsConfDirective*> ingesters = _srs_config->get_ingesters(vhost->arg0());
     
     // create engine
     for (int i = 0; i < (int)ingesters.size(); i++) {
@@ -122,8 +122,7 @@ int SrsIngester::parse_engines(SrsConfDirective* vhost, SrsConfDirective* ingest
     }
     
     // get all engines.
-    std::vector<SrsConfDirective*> engines;
-    _srs_config->get_transcode_engines(ingest, engines);
+    std::vector<SrsConfDirective*> engines = _srs_config->get_transcode_engines(ingest);
     if (engines.empty()) {
         SrsFFMPEG* ffmpeg = new SrsFFMPEG(ffmpeg_bin);
         if ((ret = initialize_ffmpeg(ffmpeg, vhost, ingest, NULL)) != ERROR_SUCCESS) {
@@ -214,8 +213,7 @@ int SrsIngester::parse()
     int ret = ERROR_SUCCESS;
     
     // parse ingesters
-    std::vector<SrsConfDirective*> vhosts;
-    _srs_config->get_vhosts(vhosts);
+    std::vector<SrsConfDirective*> vhosts = _srs_config->get_vhosts();
     
     for (int i = 0; i < (int)vhosts.size(); i++) {
         SrsConfDirective* vhost = vhosts[i];
@@ -231,13 +229,13 @@ int SrsIngester::initialize_ffmpeg(SrsFFMPEG* ffmpeg, SrsConfDirective* vhost, S
 {
     int ret = ERROR_SUCCESS;
     
-    SrsConfDirective* listen = _srs_config->get_listen();
-    srs_assert(listen->args.size() > 0);
-    std::string port = listen->arg0();
+    std::vector<std::string> ports = _srs_config->get_listen();
+    srs_assert(ports.size() > 0);
+    std::string port = ports[0];
     
     std::string output = _srs_config->get_engine_output(engine);
     // output stream, to other/self server
-    // ie. rtmp://127.0.0.1:1935/live/livestream_sd
+    // ie. rtmp://localhost:1935/live/livestream_sd
     output = srs_string_replace(output, "[vhost]", vhost->arg0());
     output = srs_string_replace(output, "[port]", port);
     if (output.empty()) {
@@ -262,18 +260,20 @@ int SrsIngester::initialize_ffmpeg(SrsFFMPEG* ffmpeg, SrsConfDirective* vhost, S
         app = app.substr(0, pos);
     }
     
-    std::string log_file;
+    std::string log_file = SRS_CONSTS_NULL_FILE; // disabled
     // write ffmpeg info to log file.
-    log_file = _srs_config->get_ffmpeg_log_dir();
-    log_file += "/";
-    log_file += "ffmpeg-ingest";
-    log_file += "-";
-    log_file += vhost->arg0();
-    log_file += "-";
-    log_file += app;
-    log_file += "-";
-    log_file += stream;
-    log_file += ".log";
+    if (_srs_config->get_ffmpeg_log_enabled()) {
+        log_file = _srs_config->get_ffmpeg_log_dir();
+        log_file += "/";
+        log_file += "ffmpeg-ingest";
+        log_file += "-";
+        log_file += vhost->arg0();
+        log_file += "-";
+        log_file += app;
+        log_file += "-";
+        log_file += stream;
+        log_file += ".log";
+    }
     
     // input
     std::string input_type = _srs_config->get_ingest_input_type(ingest);
@@ -283,7 +283,7 @@ int SrsIngester::initialize_ffmpeg(SrsFFMPEG* ffmpeg, SrsConfDirective* vhost, S
         return ret;
     }
 
-    if (input_type == SRS_AUTO_INGEST_TYPE_FILE) {
+    if (input_type == SRS_CONF_DEFAULT_INGEST_TYPE_FILE) {
         std::string input_url = _srs_config->get_ingest_input_url(ingest);
         if (input_url.empty()) {
             ret = ERROR_ENCODER_NO_INPUT;
@@ -297,7 +297,7 @@ int SrsIngester::initialize_ffmpeg(SrsFFMPEG* ffmpeg, SrsConfDirective* vhost, S
         if ((ret = ffmpeg->initialize(input_url, output, log_file)) != ERROR_SUCCESS) {
             return ret;
         }
-    } else if (input_type == SRS_AUTO_INGEST_TYPE_STREAM) {
+    } else if (input_type == SRS_CONF_DEFAULT_INGEST_TYPE_STREAM) {
         std::string input_url = _srs_config->get_ingest_input_url(ingest);
         if (input_url.empty()) {
             ret = ERROR_ENCODER_NO_INPUT;
@@ -317,12 +317,14 @@ int SrsIngester::initialize_ffmpeg(SrsFFMPEG* ffmpeg, SrsConfDirective* vhost, S
             ingest->arg0().c_str(), input_type.c_str(), ret);
     }
     
+    // set output format to flv for RTMP
+    ffmpeg->set_oformat("flv");
+    
     std::string vcodec = _srs_config->get_engine_vcodec(engine);
     std::string acodec = _srs_config->get_engine_acodec(engine);
     // whatever the engine config, use copy as default.
-    if (!engine || vcodec.empty() || acodec.empty()
-        || !_srs_config->get_engine_enabled(engine)
-    ) {
+    bool engine_disabled = !engine || !_srs_config->get_engine_enabled(engine);
+    if (engine_disabled || vcodec.empty() || acodec.empty()) {
         if ((ret = ffmpeg->initialize_copy()) != ERROR_SUCCESS) {
             return ret;
         }
@@ -347,7 +349,7 @@ void SrsIngester::ingester()
     // reportable
     if (pithy_print->can_print()) {
         // TODO: FIXME: show more info.
-        srs_trace("-> "SRS_LOG_ID_INGESTER
+        srs_trace("-> "SRS_CONSTS_LOG_INGESTER
             " time=%"PRId64", ingesters=%d", pithy_print->age(), (int)ingesters.size());
     }
 }
@@ -460,3 +462,4 @@ int SrsIngester::on_reload_ingest_updated(string vhost, string ingest_id)
 }
 
 #endif
+

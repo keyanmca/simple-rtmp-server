@@ -57,7 +57,7 @@ SimpleSocketStream::~SimpleSocketStream()
 int SimpleSocketStream::create_socket()
 {
     if((fd = ::socket(AF_INET, SOCK_STREAM, 0)) < 0){
-        return -1;
+        return ERROR_SOCKET_CREATE;
     }
 
     return ERROR_SUCCESS;
@@ -71,34 +71,38 @@ int SimpleSocketStream::connect(const char* server_ip, int port)
     addr.sin_addr.s_addr = inet_addr(server_ip);
     
     if(::connect(fd, (const struct sockaddr*)&addr, sizeof(sockaddr_in)) < 0){
-        return -1;
+        return ERROR_SOCKET_CONNECT;
     }
 
     return ERROR_SUCCESS;
 }
 
 // ISrsBufferReader
-int SimpleSocketStream::read(const void* buf, size_t size, ssize_t* nread)
+int SimpleSocketStream::read(void* buf, size_t size, ssize_t* nread)
 {
     int ret = ERROR_SUCCESS;
     
-    *nread = ::recv(fd, (void*)buf, size, 0);
+    ssize_t nb_read = ::recv(fd, buf, size, 0);
+    
+    if (nread) {
+        *nread = nb_read;
+    }
     
     // On success a non-negative integer indicating the number of bytes actually read is returned 
     // (a value of 0 means the network connection is closed or end of file is reached).
-    if (*nread <= 0) {
-        if (errno == ETIME) {
+    if (nb_read <= 0) {
+        if (nb_read < 0 && errno == ETIME) {
             return ERROR_SOCKET_TIMEOUT;
         }
         
-        if (*nread == 0) {
+        if (nb_read == 0) {
             errno = ECONNRESET;
         }
         
         return ERROR_SOCKET_READ;
     }
     
-    recv_bytes += *nread;
+    recv_bytes += nb_read;
     
     return ret;
 }
@@ -139,17 +143,25 @@ int SimpleSocketStream::writev(const iovec *iov, int iov_size, ssize_t* nwrite)
 {
     int ret = ERROR_SUCCESS;
     
-    *nwrite = ::writev(fd, iov, iov_size);
+    ssize_t nb_write = ::writev(fd, iov, iov_size);
     
-    if (*nwrite <= 0) {
-        if (errno == ETIME) {
+    if (nwrite) {
+        *nwrite = nb_write;
+    }
+    
+    // On  success,  the  readv()  function  returns the number of bytes read; 
+    // the writev() function returns the number of bytes written.  On error, -1 is
+    // returned, and errno is set appropriately.
+    if (nb_write <= 0) {
+        // @see https://github.com/simple-rtmp-server/srs/issues/200
+        if (nb_write < 0 && errno == ETIME) {
             return ERROR_SOCKET_TIMEOUT;
         }
         
         return ERROR_SOCKET_WRITE;
     }
     
-    send_bytes += *nwrite;
+    send_bytes += nb_write;
     
     return ret;
 }
@@ -160,46 +172,55 @@ bool SimpleSocketStream::is_never_timeout(int64_t timeout_us)
     return timeout_us == (int64_t)ST_UTIME_NO_TIMEOUT;
 }
 
-int SimpleSocketStream::read_fully(const void* buf, size_t size, ssize_t* nread)
+int SimpleSocketStream::read_fully(void* buf, size_t size, ssize_t* nread)
 {
     int ret = ERROR_SUCCESS;
     
     size_t left = size;
-    *nread = 0;
+    ssize_t nb_read = 0;
     
     while (left > 0) {
-        char* this_buf = (char*)buf + *nread;
+        char* this_buf = (char*)buf + nb_read;
         ssize_t this_nread;
         
         if ((ret = this->read(this_buf, left, &this_nread)) != ERROR_SUCCESS) {
             return ret;
         }
         
-        *nread += this_nread;
+        nb_read += this_nread;
         left -= this_nread;
     }
     
-    recv_bytes += *nread;
+    if (nread) {
+        *nread = nb_read;
+    }
+    recv_bytes += nb_read;
     
     return ret;
 }
 
-int SimpleSocketStream::write(const void* buf, size_t size, ssize_t* nwrite)
+int SimpleSocketStream::write(void* buf, size_t size, ssize_t* nwrite)
 {
     int ret = ERROR_SUCCESS;
     
-    *nwrite = ::send(fd, (void*)buf, size, 0);
+    ssize_t nb_write = ::send(fd, (void*)buf, size, 0);
     
-    if (*nwrite <= 0) {
-        if (errno == ETIME) {
+    if (nwrite) {
+        *nwrite = nb_write;
+    }
+    
+    if (nb_write <= 0) {
+        // @see https://github.com/simple-rtmp-server/srs/issues/200
+        if (nb_write < 0 && errno == ETIME) {
             return ERROR_SOCKET_TIMEOUT;
         }
         
         return ERROR_SOCKET_WRITE;
     }
     
-    send_bytes += *nwrite;
+    send_bytes += nb_write;
     
     return ret;
 }
+
 

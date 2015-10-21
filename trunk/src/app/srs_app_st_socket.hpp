@@ -21,11 +21,11 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#ifndef SRS_APP_SOCKET_HPP
-#define SRS_APP_SOCKET_HPP
+#ifndef SRS_APP_ST_SOCKET_HPP
+#define SRS_APP_ST_SOCKET_HPP
 
 /*
-#include <srs_app_socket.hpp>
+#include <srs_app_st_socket.hpp>
 */
 
 #include <srs_core.hpp>
@@ -37,7 +37,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 * the socket provides TCP socket over st,
 * that is, the sync socket mechanism.
 */
-class SrsSocket : public ISrsProtocolReaderWriter
+class SrsStSocket : public ISrsProtocolReaderWriter
 {
 private:
     int64_t recv_timeout;
@@ -46,8 +46,8 @@ private:
     int64_t send_bytes;
     st_netfd_t stfd;
 public:
-    SrsSocket(st_netfd_t client_stfd);
-    virtual ~SrsSocket();
+    SrsStSocket(st_netfd_t client_stfd);
+    virtual ~SrsStSocket();
 public:
     virtual bool is_never_timeout(int64_t timeout_us);
     virtual void set_recv_timeout(int64_t timeout_us);
@@ -60,12 +60,12 @@ public:
     /**
     * @param nread, the actual read bytes, ignore if NULL.
     */
-    virtual int read(const void* buf, size_t size, ssize_t* nread);
-    virtual int read_fully(const void* buf, size_t size, ssize_t* nread);
+    virtual int read(void* buf, size_t size, ssize_t* nread);
+    virtual int read_fully(void* buf, size_t size, ssize_t* nread);
     /**
     * @param nwrite, the actual write bytes, ignore if NULL.
     */
-    virtual int write(const void* buf, size_t size, ssize_t* nwrite);
+    virtual int write(void* buf, size_t size, ssize_t* nwrite);
     virtual int writev(const iovec *iov, int iov_size, ssize_t* nwrite);
 };
 

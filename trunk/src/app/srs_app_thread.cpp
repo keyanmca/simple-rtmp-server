@@ -54,7 +54,7 @@ void ISrsThreadHandler::on_thread_stop()
 {
 }
 
-SrsThread::SrsThread(ISrsThreadHandler* thread_handler, int64_t interval_us)
+SrsThread::SrsThread(ISrsThreadHandler* thread_handler, int64_t interval_us, bool joinable)
 {
     handler = thread_handler;
     cycle_interval_us = interval_us;
@@ -62,6 +62,13 @@ SrsThread::SrsThread(ISrsThreadHandler* thread_handler, int64_t interval_us)
     tid = NULL;
     loop = false;
     _cid = -1;
+    _joinable = joinable;
+    
+    // in start(), the thread cycle method maybe stop and remove the thread itself,
+    // and the thread start() is waiting for the _cid, and segment fault then.
+    // @see https://github.com/simple-rtmp-server/srs/issues/110
+    // thread will set _cid, callback on_thread_start(), then wait for the can_run signal.
+    can_run = false;
 }
 
 SrsThread::~SrsThread()
@@ -83,7 +90,7 @@ int SrsThread::start()
         return ret;
     }
     
-    if((tid = st_thread_create(thread_fun, this, 1, 0)) == NULL){
+    if((tid = st_thread_create(thread_fun, this, (_joinable? 1:0), 0)) == NULL){
         ret = ERROR_ST_CREATE_CYCLE_THREAD;
         srs_error("st_thread_create failed. ret=%d", ret);
         return ret;
@@ -93,9 +100,12 @@ int SrsThread::start()
     loop = true;
     
     // wait for cid to ready, for parent thread to get the cid.
-    while (_cid < 0) {
-        st_usleep(10 * SRS_TIME_MILLISECONDS);
+    while (_cid < 0 && loop) {
+        st_usleep(10 * 1000);
     }
+    
+    // now, cycle thread can run.
+    can_run = true;
     
     return ret;
 }
@@ -110,7 +120,11 @@ void SrsThread::stop()
         st_thread_interrupt(tid);
         
         // wait the thread to exit.
-        st_thread_join(tid, NULL);
+        int ret = st_thread_join(tid, NULL);
+        // TODO: FIXME: the join maybe failed, should use a variable to ensure thread terminated.
+        if (ret != 0) {
+            srs_warn("join thread failed. code=%d", ret);
+        }
         
         tid = NULL;
     }
@@ -137,6 +151,11 @@ void SrsThread::thread_cycle()
     
     srs_assert(handler);
     handler->on_thread_start();
+    
+    // wait for cid to ready, for parent thread to get the cid.
+    while (!can_run && loop) {
+        st_usleep(10 * 1000);
+    }
     
     while (loop) {
         if ((ret = handler->on_before_cycle()) != ERROR_SUCCESS) {
@@ -180,3 +199,4 @@ void* SrsThread::thread_fun(void* arg)
     
     return NULL;
 }
+

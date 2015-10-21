@@ -29,22 +29,34 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
 // current release version
-#define VERSION_MAJOR "0"
-#define VERSION_MINOR "9"
-#define VERSION_REVISION "95"
-#define RTMP_SIG_SRS_VERSION VERSION_MAJOR"."VERSION_MINOR"."VERSION_REVISION
+#define VERSION_MAJOR       1
+#define VERSION_MINOR       0
+#define VERSION_REVISION    33
+
 // server info.
-#define RTMP_SIG_SRS_KEY "srs"
+#define RTMP_SIG_SRS_KEY "SRS"
+#define RTMP_SIG_SRS_CODE "HuKaiqun"
 #define RTMP_SIG_SRS_ROLE "origin/edge server"
-#define RTMP_SIG_SRS_NAME RTMP_SIG_SRS_KEY"(simple rtmp server)"
+#define RTMP_SIG_SRS_NAME RTMP_SIG_SRS_KEY"(Simple RTMP Server)"
 #define RTMP_SIG_SRS_URL_SHORT "github.com/winlinvip/simple-rtmp-server"
 #define RTMP_SIG_SRS_URL "https://"RTMP_SIG_SRS_URL_SHORT
 #define RTMP_SIG_SRS_WEB "http://blog.csdn.net/win_lin"
 #define RTMP_SIG_SRS_EMAIL "winlin@vip.126.com"
 #define RTMP_SIG_SRS_LICENSE "The MIT License (MIT)"
 #define RTMP_SIG_SRS_COPYRIGHT "Copyright (c) 2013-2014 winlin"
-#define RTMP_SIG_SRS_PRIMARY_AUTHROS "winlin,wenjie.zhao"
+#define RTMP_SIG_SRS_PRIMARY "winlin"
+#define RTMP_SIG_SRS_AUTHROS "wenjie.zhao"
 #define RTMP_SIG_SRS_CONTRIBUTORS_URL RTMP_SIG_SRS_URL"/blob/master/AUTHORS.txt"
+#define RTMP_SIG_SRS_HANDSHAKE RTMP_SIG_SRS_KEY"("RTMP_SIG_SRS_VERSION")"
+#define RTMP_SIG_SRS_RELEASE "https://github.com/simple-rtmp-server/srs/tree/1.0release"
+#define RTMP_SIG_SRS_HTTP_SERVER "https://github.com/simple-rtmp-server/srs/wiki/v1_CN_HTTPServer#feature"
+#define RTMP_SIG_SRS_VERSION __SRS_XSTR(VERSION_MAJOR)"."__SRS_XSTR(VERSION_MINOR)"."__SRS_XSTR(VERSION_REVISION)
+#define RTMP_SIG_SRS_SERVER RTMP_SIG_SRS_KEY"/"RTMP_SIG_SRS_VERSION"("RTMP_SIG_SRS_CODE")"
+
+// internal macros, covert macro values to str,
+// see: read https://gcc.gnu.org/onlinedocs/cpp/Stringification.html#Stringification
+#define __SRS_XSTR(v) __SRS_STR(v)
+#define __SRS_STR(v) #v
 
 /**
 * the core provides the common defined macros, utilities,
@@ -85,32 +97,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // it's recomments to free each elem explicit.
 // so we remove the srs_freepa utility.
 
-// compare
-#define srs_min(a, b) (((a) < (b))? (a) : (b))
-#define srs_max(a, b) (((a) < (b))? (b) : (a))
-
-// signal defines.
-#define SIGNAL_RELOAD SIGHUP
-
-#include <string>
-// replace old_str to new_str of str
-extern std::string srs_string_replace(std::string str, std::string old_str, std::string new_str);
-// trim char in trim_chars of str
-extern std::string srs_string_trim_end(std::string str, std::string trim_chars);
-// trim char in trim_chars of str
-extern std::string srs_string_trim_start(std::string str, std::string trim_chars);
-// remove char in remove_chars of str
-extern std::string srs_string_remove(std::string str, std::string remove_chars);
-// whether string end with
-extern bool srs_string_ends_with(std::string str, std::string flag);
-
-// dns resolve utility, return the resolved ip address.
-extern std::string srs_dns_resolve(std::string host);
-// whether system is little endian
-extern bool srs_is_little_endian();
-
 /**
-* disable copy constructor of class
+* disable copy constructor of class,
+* to avoid the memory leak or corrupt by copy instance.
 */
 #define disable_default_copy(className)\
     private:\
@@ -120,8 +109,5 @@ extern bool srs_is_little_endian();
         className(const className&); \
         className& operator= (const className&)
 
-// const time for st to convert to us
-#define SRS_TIME_MILLISECONDS 1000
-#define SRS_TIME_SECONDS 1000000
-
 #endif
+

@@ -4,11 +4,6 @@ ffmpeg-min.png
 source.flv
     avatar预告片，400kbps。
     
-FreeSerifBold.ttf
-    字体文件，ffmpeg的drawtext filter需要使用。
-    参考：http://ffmpeg.org/ffmpeg-filters.html#drawtext-1
-    下载地址：http://www.fonts2u.com/free-serif.font
-    
 aac-iso-13818-7.pdf
     aac标准，aac的编码等。
     
@@ -44,6 +39,12 @@ rtmp.part2.Message-Formats.pdf
 rtmp.part3.Commands-Messages.pdf
 rtmp_specification_1.0.pdf
     adobe rtmp标准。
+    
+rtmfp-rfc7016.pdf
+    adobe RTMFP, http://tools.ietf.org/html/rfc7016.
+    
+rtmfp-tsvarea-1.pdf
+    http://www.ietf.org/proceedings/10mar/slides/tsvarea-1.pdf
     
 flv_v10_1.pdf
 video_file_format_spec_v10_1.pdf

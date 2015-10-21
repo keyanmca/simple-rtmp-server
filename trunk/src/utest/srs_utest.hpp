@@ -31,37 +31,62 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "gtest/gtest.h"
 
+#include <srs_app_log.hpp>
+
+#define __UTEST_DEV
+#undef __UTEST_DEV
+
+// enable all utest.
+#ifndef __UTEST_DEV
+    #define ENABLE_UTEST_AMF0
+    #define ENABLE_UTEST_CONFIG
+    #define ENABLE_UTEST_CORE
+    #define ENABLE_UTEST_KERNEL
+    #define ENABLE_UTEST_PROTOCOL
+    #define ENABLE_UTEST_RELOAD
+#endif
+
+// disable some for fast dev, compile and startup.
+#ifdef __UTEST_DEV
+    #undef ENABLE_UTEST_AMF0
+    #undef ENABLE_UTEST_CONFIG
+    #undef ENABLE_UTEST_CORE
+    #undef ENABLE_UTEST_KERNEL
+    #undef ENABLE_UTEST_PROTOCOL
+    #undef ENABLE_UTEST_RELOAD
+#endif
+
+#ifdef __UTEST_DEV
+    #define ENABLE_UTEST_RELOAD
+#endif
+
 // we add an empty macro for upp to show the smart tips.
 #define VOID
 
-#include <srs_protocol_io.hpp>
+// the asserts of gtest:
+//    * {ASSERT|EXPECT}_EQ(expected, actual): Tests that expected == actual
+//    * {ASSERT|EXPECT}_NE(v1, v2):           Tests that v1 != v2
+//    * {ASSERT|EXPECT}_LT(v1, v2):           Tests that v1 < v2
+//    * {ASSERT|EXPECT}_LE(v1, v2):           Tests that v1 <= v2
+//    * {ASSERT|EXPECT}_GT(v1, v2):           Tests that v1 > v2
+//    * {ASSERT|EXPECT}_GE(v1, v2):           Tests that v1 >= v2
+//    * {ASSERT|EXPECT}_STREQ(s1, s2):     Tests that s1 == s2
+//    * {ASSERT|EXPECT}_STRNE(s1, s2):     Tests that s1 != s2
+//    * {ASSERT|EXPECT}_STRCASEEQ(s1, s2): Tests that s1 == s2, ignoring case
+//    * {ASSERT|EXPECT}_STRCASENE(s1, s2): Tests that s1 != s2, ignoring case
+//    * {ASSERT|EXPECT}_FLOAT_EQ(expected, actual): Tests that two float values are almost equal.
+//    * {ASSERT|EXPECT}_DOUBLE_EQ(expected, actual): Tests that two double values are almost equal.
+//    * {ASSERT|EXPECT}_NEAR(v1, v2, abs_error): Tests that v1 and v2 are within the given distance to each other.
 
-class MockEmptyIO : public ISrsProtocolReaderWriter
+// print the bytes.
+void __srs_bytes_print(char* pa, int size);
+
+class MockEmptyLog : public SrsFastLog
 {
 public:
-    MockEmptyIO();
-    virtual ~MockEmptyIO();
-// for protocol
-public:
-    virtual bool is_never_timeout(int64_t timeout_us);
-// for handshake.
-public:
-    virtual int read_fully(const void* buf, size_t size, ssize_t* nread);
-    virtual int write(const void* buf, size_t size, ssize_t* nwrite);
-// for protocol
-public:
-    virtual void set_recv_timeout(int64_t timeout_us);
-    virtual int64_t get_recv_timeout();
-    virtual int64_t get_recv_bytes();
-// for protocol
-public:
-    virtual void set_send_timeout(int64_t timeout_us);
-    virtual int64_t get_send_timeout();
-    virtual int64_t get_send_bytes();
-    virtual int writev(const iovec *iov, int iov_size, ssize_t* nwrite);
-// for protocol/amf0/msg-codec
-public:
-    virtual int read(const void* buf, size_t size, ssize_t* nread);
+    MockEmptyLog(int level);
+    virtual ~MockEmptyLog();
 };
 
 #endif
+

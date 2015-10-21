@@ -143,29 +143,20 @@ package
         private function system_on_metadata(metadata:Object):void {
             this.media_metadata = metadata;
             
-            if (metadata.hasOwnProperty("server")) {
-                // for context menu
-                var customItems:Array = [new ContextMenuItem("SrsPlayer")];
-                if (metadata.hasOwnProperty("server")) {
-                    customItems.push(new ContextMenuItem("Server: " + metadata.server));
-                }
-                if (metadata.hasOwnProperty("contributor")) {
-                    customItems.push(new ContextMenuItem("Contributor: " + metadata.contributor));
-                }
-                contextMenu.customItems = customItems;
-            }
-            
             // for js.
             var obj:Object = __get_video_size_object();
             
             obj.server = 'srs';
             obj.contributor = 'winlin';
             
-            if (metadata.hasOwnProperty("server")) {
-                obj.server = metadata.server;
+            if (srs_server != null) {
+                obj.server = srs_server;
             }
-            if (metadata.hasOwnProperty("contributor")) {
-                obj.contributor = metadata.contributor;
+            if (srs_primary != null) {
+                obj.contributor = srs_primary;
+            }
+            if (srs_authors != null) {
+                obj.contributor = srs_authors;
             }
             
             var code:int = flash.external.ExternalInterface.call(js_on_player_metadata, js_id, obj);
@@ -277,6 +268,37 @@ package
             }
         }
         
+        // srs infos
+        private var srs_server:String = null;
+        private var srs_primary:String = null;
+        private var srs_authors:String = null;
+        private var srs_id:String = null;
+        private var srs_pid:String = null;
+        private var srs_server_ip:String = null;
+        private function update_context_items():void {
+            // for context menu
+            var customItems:Array = [new ContextMenuItem("SrsPlayer")];
+            if (srs_server != null) {
+                customItems.push(new ContextMenuItem("Server: " + srs_server));
+            }
+            if (srs_primary != null) {
+                customItems.push(new ContextMenuItem("Primary: " + srs_primary));
+            }
+            if (srs_authors != null) {
+                customItems.push(new ContextMenuItem("Authors: " + srs_authors));
+            }
+            if (srs_server_ip != null) {
+                customItems.push(new ContextMenuItem("SrsIp: " + srs_server_ip));
+            }
+            if (srs_pid != null) {
+                customItems.push(new ContextMenuItem("SrsPid: " + srs_pid));
+            }
+            if (srs_id != null) {
+                customItems.push(new ContextMenuItem("SrsId: " + srs_id));
+            }
+            contextMenu.customItems = customItems;
+        }
+        
         /**
          * function for js to call: to play the stream. stop then play.
          * @param url, the rtmp/http url to play.
@@ -300,15 +322,25 @@ package
                 trace ("NetConnection: code=" + evt.info.code);
                 
                 if (evt.info.hasOwnProperty("data") && evt.info.data) {
-                    // for context menu
-                    var customItems:Array = [new ContextMenuItem("SrsPlayer")];
                     if (evt.info.data.hasOwnProperty("srs_server")) {
-                        customItems.push(new ContextMenuItem("Server: " + evt.info.data.srs_server));
+                        srs_server = evt.info.data.srs_server;
                     }
-                    if (evt.info.data.hasOwnProperty("srs_primary_authors")) {
-                        customItems.push(new ContextMenuItem("PrimaryAuthors: " + evt.info.data.srs_primary_authors));
+                    if (evt.info.data.hasOwnProperty("srs_primary")) {
+                        srs_primary = evt.info.data.srs_primary;
                     }
-                    contextMenu.customItems = customItems;
+                    if (evt.info.data.hasOwnProperty("srs_authors")) {
+                        srs_authors = evt.info.data.srs_authors;
+                    }
+                    if (evt.info.data.hasOwnProperty("srs_id")) {
+                        srs_id = evt.info.data.srs_id;
+                    }
+                    if (evt.info.data.hasOwnProperty("srs_pid")) {
+                        srs_pid = evt.info.data.srs_pid;
+                    }
+                    if (evt.info.data.hasOwnProperty("srs_server_ip")) {
+                        srs_server_ip = evt.info.data.srs_server_ip;
+                    }
+                    update_context_items();
                 }
                 
                 // TODO: FIXME: failed event.

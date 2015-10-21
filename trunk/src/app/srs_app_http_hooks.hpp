@@ -29,41 +29,17 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 #include <srs_core.hpp>
 
+#include <string>
+
 #ifdef SRS_AUTO_HTTP_CALLBACK
 
 #include <http_parser.h>
 
 class SrsHttpUri;
-class SrsSocket;
+class SrsStSocket;
 class SrsRequest;
 class SrsHttpParser;
 class SrsFlvSegment;
-
-#include <srs_app_st.hpp>
-
-/**
-* http client to GET/POST/PUT/DELETE uri
-*/
-class SrsHttpClient
-{
-private:
-    bool connected;
-    st_netfd_t stfd;
-    SrsHttpParser* parser;
-public:
-    SrsHttpClient();
-    virtual ~SrsHttpClient();
-public:
-    /**
-    * to post data to the uri.
-    * @param req the data post to uri.
-    * @param res the response data from server.
-    */
-    virtual int post(SrsHttpUri* uri, std::string req, std::string& res);
-private:
-    virtual void disconnect();
-    virtual int connect(SrsHttpUri* uri);
-};
 
 /**
 * the http hooks, http callback api,
@@ -122,23 +98,9 @@ public:
     *         ignore if empty.
     */
     static void on_stop(std::string url, int client_id, std::string ip, SrsRequest* req);
-public:
-    /**
-    * on_dvr_hss_reap_flv_header hook, when dvr write flv file header.
-    * @param url the api server url, to process the event. 
-    *         ignore if empty.
-    * @param header_file the flv header file.
-    */
-    static void on_dvr_hss_reap_flv_header(std::string url, SrsRequest* req, std::string header_file);
-    /**
-    * on_dvr_hss_reap_flv hook, when dvr close flv file.
-    * @param url the api server url, to process the event. 
-    *         ignore if empty.
-    * @param segment the current flv segment.
-    */
-    static void on_dvr_hss_reap_flv(std::string url, SrsRequest* req, SrsFlvSegment* segment);
 };
 
 #endif
 
 #endif
+

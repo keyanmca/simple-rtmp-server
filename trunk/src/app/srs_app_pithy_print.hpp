@@ -30,20 +30,26 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <srs_core.hpp>
 
-// the pithy stage for all play clients.
-#define SRS_STAGE_PLAY_USER 1
-// the pithy stage for all publish clients.
-#define SRS_STAGE_PUBLISH_USER 2
-// the pithy stage for all forward clients.
-#define SRS_STAGE_FORWARDER 3
-// the pithy stage for all encoders.
-#define SRS_STAGE_ENCODER 4
-// the pithy stage for all hls.
-#define SRS_STAGE_HLS 5
-// the pithy stage for all ingesters.
-#define SRS_STAGE_INGESTER 6
-// the pithy stage for all edge.
-#define SRS_STAGE_EDGE 7
+#include <srs_app_reload.hpp>
+
+class SrsStageInfo : public ISrsReloadHandler
+{
+public:
+    int stage_id;
+    int pithy_print_time_ms;
+    int nb_clients;
+public:
+    int64_t age;
+public:
+    SrsStageInfo(int _stage_id);
+    virtual ~SrsStageInfo();
+    virtual void update_print_time();
+public:
+    virtual void elapse(int64_t diff);
+    virtual bool can_print();
+public:
+    virtual int on_reload_pithy_print();
+};
 
 /**
 * the stage is used for a collection of object to do print,
@@ -58,11 +64,10 @@ private:
     int stage_id;
     // in ms.
     int64_t _age;
-    int64_t printed_age;
     int64_t previous_tick;
 public:
     /**
-    * @param _stage_id defined in SRS_STAGE_xxx, eg. SRS_STAGE_PLAY_USER.
+    * @param _stage_id defined in SRS_CONSTS_STAGE_xxx, eg. SRS_CONSTS_STAGE_PLAY_USER.
     */
     SrsPithyPrint(int _stage_id);
     virtual ~SrsPithyPrint();

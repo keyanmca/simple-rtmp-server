@@ -21,19 +21,6 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#ifndef SRS_UTEST_HANDSHAKE_HPP
-#define SRS_UTEST_HANDSHAKE_HPP
+#include <srs_app_empty.hpp>
 
-/*
-#include <srs_utest_handshake.hpp>
-*/
-#include <srs_utest.hpp>
 
-#include <srs_protocol_rtmp.hpp>
-#include <srs_protocol_handshake.hpp>
-
-#ifdef SRS_AUTO_SSL
-using namespace srs;
-#endif
-
-#endif

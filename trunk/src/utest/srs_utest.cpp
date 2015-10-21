@@ -30,71 +30,28 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <srs_app_log.hpp>
 
 // kernel module.
-ISrsLog* _srs_log = new ISrsLog();
+ISrsLog* _srs_log = new MockEmptyLog(SrsLogLevel::Disabled);
 ISrsThreadContext* _srs_context = new ISrsThreadContext();
 // app module.
 SrsConfig* _srs_config = NULL;
 SrsServer* _srs_server = NULL;
 
-MockEmptyIO::MockEmptyIO()
+MockEmptyLog::MockEmptyLog(int level)
+{
+    _level = level;
+}
+
+MockEmptyLog::~MockEmptyLog()
 {
 }
 
-MockEmptyIO::~MockEmptyIO()
+void __srs_bytes_print(char* pa, int size)
 {
-}
-
-bool MockEmptyIO::is_never_timeout(int64_t /*timeout_us*/)
-{
-    return true;
-}
-
-int MockEmptyIO::read_fully(const void* /*buf*/, size_t /*size*/, ssize_t* /*nread*/)
-{
-    return ERROR_SUCCESS;
-}
-
-int MockEmptyIO::write(const void* /*buf*/, size_t /*size*/, ssize_t* /*nwrite*/)
-{
-    return ERROR_SUCCESS;
-}
-
-void MockEmptyIO::set_recv_timeout(int64_t /*timeout_us*/)
-{
-}
-
-int64_t MockEmptyIO::get_recv_timeout()
-{
-    return -1;
-}
-
-int64_t MockEmptyIO::get_recv_bytes()
-{
-    return -1;
-}
-
-void MockEmptyIO::set_send_timeout(int64_t /*timeout_us*/)
-{
-}
-
-int64_t MockEmptyIO::get_send_timeout()
-{
-    return 0;
-}
-
-int64_t MockEmptyIO::get_send_bytes()
-{
-    return 0;
-}
-
-int MockEmptyIO::writev(const iovec */*iov*/, int /*iov_size*/, ssize_t* /*nwrite*/)
-{
-    return ERROR_SUCCESS;
-}
-
-int MockEmptyIO::read(const void* /*buf*/, size_t /*size*/, ssize_t* /*nread*/)
-{
-    return ERROR_SUCCESS;
+    for(int i = 0; i < size; i++) {
+        char v = pa[i];
+        printf("%#x ", v);
+    }
+    printf("\n");
 }
 
 // basic test and samples.
@@ -127,3 +84,4 @@ VOID TEST(SampleTest, FastSampleMacrosTest)
     EXPECT_DOUBLE_EQ(1.0, 1.0000000000000001);
     EXPECT_NEAR(10, 15, 5);
 }
+

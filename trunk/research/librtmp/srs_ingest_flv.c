@@ -35,20 +35,21 @@ gcc srs_ingest_flv.c ../../objs/lib/srs_librtmp.a -g -O0 -lstdc++ -o srs_ingest_
 #include "../../objs/include/srs_librtmp.h"
 #include "srs_research_public.h"
 
-int proxy(int flv_fd, srs_rtmp_t ortmp);
+int proxy(srs_flv_t flv, srs_rtmp_t ortmp);
 int connect_oc(srs_rtmp_t ortmp);
 
-int open_flv_file(char* in_flv_file);
-void close_flv_file(int flv_fd);
-int flv_open_ic(int flv_fd);
-int flv_read_packet(int flv_fd, int* type, u_int32_t* timestamp, char** data, int* size);
-
+#define RE_PULSE_MS 300
 int64_t re_create();
-int64_t re_update(int64_t re, u_int32_t time);
+void re_update(int64_t re, u_int32_t time);
+void re_cleanup(int64_t re, u_int32_t time);
 
+int64_t tools_main_entrance_startup_time;
 int main(int argc, char** argv)
 {
     int ret = 0;
+    
+    // main function
+    tools_main_entrance_startup_time = srs_get_time_ms();
     
     // user option parse index.
     int opt = 0;
@@ -57,7 +58,7 @@ int main(int argc, char** argv)
     // rtmp handler
     srs_rtmp_t ortmp;
     // flv handler
-    int flv_fd;
+    srs_flv_t flv;
     
     if (argc <= 2) {
         printf("ingest flv file and publish to RTMP server\n"
@@ -66,7 +67,7 @@ int main(int argc, char** argv)
             "   out_rtmp_url    output rtmp url, publish to this url.\n"
             "For example:\n"
             "   %s -i ../../doc/source.200kbps.768x320.flv -y rtmp://127.0.0.1/live/demo\n",
-            argv[0]);
+            argv[0], argv[0]);
         ret = 1;
         exit(ret);
         return ret;
@@ -92,8 +93,7 @@ int main(int argc, char** argv)
     trace("input:  %s", in_flv_file);
     trace("output: %s", out_rtmp_url);
 
-    flv_fd = open_flv_file(in_flv_file);
-    if (flv_fd <= 0) {
+    if ((flv = srs_flv_open_read(in_flv_file)) == NULL) {
         ret = 2;
         trace("open flv file failed. ret=%d", ret);
         return ret;
@@ -101,51 +101,79 @@ int main(int argc, char** argv)
     
     ortmp = srs_rtmp_create(out_rtmp_url);
 
-    ret = proxy(flv_fd, ortmp);
+    ret = proxy(flv, ortmp);
     trace("ingest flv to RTMP completed");
     
     srs_rtmp_destroy(ortmp);
-    close_flv_file(flv_fd);
+    srs_flv_close(flv);
     
     return ret;
 }
 
-int proxy(int flv_fd, srs_rtmp_t ortmp)
+int do_proxy(srs_flv_t flv, srs_rtmp_t ortmp, int64_t re, u_int32_t* ptimestamp)
 {
     int ret = 0;
     
     // packet data
-    int type, size;
-    u_int32_t timestamp = 0;
+    char type;
+    int size;
     char* data = NULL;
-    // re
-    int64_t re = re_create();
     
-    if ((ret = flv_open_ic(flv_fd)) != 0) {
+    trace("start ingest flv to RTMP stream");
+    for (;;) {
+        // tag header
+        if ((ret = srs_flv_read_tag_header(flv, &type, &size, ptimestamp)) != 0) {
+            if (srs_flv_is_eof(ret)) {
+                trace("parse completed.");
+                return 0;
+            }
+            trace("flv get packet failed. ret=%d", ret);
+            return ret;
+        }
+        
+        if (size <= 0) {
+            trace("invalid size=%d", size);
+            break;
+        }
+        
+        // TODO: FIXME: mem leak when error.
+        data = (char*)malloc(size);
+        if ((ret = srs_flv_read_tag_data(flv, data, size)) != 0) {
+            return ret;
+        }
+        
+        if ((ret = srs_write_packet(ortmp, type, *ptimestamp, data, size)) != 0) {
+            trace("irtmp get packet failed. ret=%d", ret);
+            return ret;
+        }
+        verbose("ortmp sent packet: type=%s, time=%d, size=%d", 
+            srs_type2string(type), *ptimestamp, size);
+        
+        re_update(re, *ptimestamp);
+    }
+    
+    return ret;
+}
+
+int proxy(srs_flv_t flv, srs_rtmp_t ortmp)
+{
+    int ret = 0;
+    u_int32_t timestamp = 0;
+    
+    char header[13];
+    if ((ret = srs_flv_read_header(flv, header)) != 0) {
         return ret;
     }
     if ((ret = connect_oc(ortmp)) != 0) {
         return ret;
     }
     
-    trace("start ingest flv to RTMP stream");
-    for (;;) {
-        if ((ret = flv_read_packet(flv_fd, &type, &timestamp, &data, &size)) != 0) {
-            trace("irtmp get packet failed. ret=%d", ret);
-            return ret;
-        }
-        verbose("irtmp got packet: type=%s, time=%d, size=%d", 
-            srs_type2string(type), timestamp, size);
-        
-        if ((ret = srs_write_packet(ortmp, type, timestamp, data, size)) != 0) {
-            trace("irtmp get packet failed. ret=%d", ret);
-            return ret;
-        }
-        verbose("ortmp sent packet: type=%s, time=%d, size=%d", 
-            srs_type2string(type), timestamp, size);
-        
-        re = re_update(re, timestamp);
-    }
+    int64_t re = re_create();
+    
+    ret = do_proxy(flv, ortmp, re, &timestamp);
+    
+    // for the last pulse, always sleep.
+    re_cleanup(re, timestamp);
     
     return ret;
 }
@@ -177,114 +205,42 @@ int connect_oc(srs_rtmp_t ortmp)
 
 int64_t re_create()
 {
-    return 0;
-}
-int64_t re_update(int64_t re, u_int32_t time)
-{
-    if (time - re > 500) {
-        usleep((time - re) * 1000);
-        return time;
+    // if not very precise, we can directly use this as re.
+    int64_t re = srs_get_time_ms();
+    
+    // use the starttime to get the deviation
+    int64_t deviation = re - tools_main_entrance_startup_time;
+    trace("deviation is %d ms, pulse is %d ms", (int)(deviation), (int)(RE_PULSE_MS));
+    
+    // so, we adjust time to max(0, deviation)
+    // because the last pulse, we already sleeped
+    int adjust = (int)(deviation);
+    if (adjust > 0) {
+        trace("adjust re time for %d ms", adjust);
+        re -= adjust;
+    } else {
+        trace("no need to adjust re time");
     }
     
     return re;
 }
-
-int open_flv_file(char* in_flv_file)
+void re_update(int64_t re, u_int32_t time)
 {
-    return open(in_flv_file, O_RDONLY);
-}
-
-void close_flv_file(int fd)
-{
-    if (fd > 0) {
-        close(fd);
+    // send by pulse algorithm.
+    int64_t now = srs_get_time_ms();
+    int64_t diff = time - (now -re);
+    if (diff > RE_PULSE_MS) {
+        usleep(diff * 1000);
     }
 }
-
-int flv_open_ic(int flv_fd)
+void re_cleanup(int64_t re, u_int32_t time)
 {
-    int ret = 0;
-    
-    char h[13]; // 9+4
-    
-    if (read(flv_fd, h, sizeof(h)) != sizeof(h)) {
-        ret = -1;
-        trace("read flv header failed. ret=%d", ret);
-        return ret;
+    // for the last pulse, always sleep.
+    // for the virtual live encoder long time publishing.
+    int64_t now = srs_get_time_ms();
+    int64_t diff = time - (now -re);
+    if (diff > 0) {
+        trace("re_cleanup sleep for the last pulse for %d ms", (int)diff);
+        usleep(diff * 1000);
     }
-    
-    if (h[0] != 'F' || h[1] != 'L' || h[2] != 'V') {
-        ret = -1;
-        trace("input is not a flv file. ret=%d", ret);
-        return ret;
-    }
-    
-    return ret;
-}
-
-int flv_read_packet(int flv_fd, int* type, u_int32_t* timestamp, char** data, int* size)
-{
-    int ret = 0;
-    
-    char th[11]; // tag header
-    char ts[4]; // tag size
-    
-    int32_t data_size = 0;
-    u_int32_t time = 0; 
-    
-    char* pp;
-    
-    // read tag header
-    if (read(flv_fd, th, sizeof(th)) != sizeof(th)) {
-        ret = -1;
-        trace("read flv tag header failed. ret=%d", ret);
-        return ret;
-    }
-    
-    // Reserved UB [2]
-    // Filter UB [1]
-    // TagType UB [5]
-    *type = (int)(th[0] & 0x1F);
-    
-    // DataSize UI24
-    pp = (char*)&data_size;
-    pp[2] = th[1];
-    pp[1] = th[2];
-    pp[0] = th[3];
-    
-    // Timestamp UI24
-    pp = (char*)&time;
-    pp[2] = th[4];
-    pp[1] = th[5];
-    pp[0] = th[6];
-    
-    // TimestampExtended UI8
-    pp[3] = th[7];
-    
-    *timestamp = time;
-    
-    // check data size.
-    if (data_size <= 0) {
-        ret = -1;
-        trace("invalid data size. size=%d, ret=%d", data_size, ret);
-        return ret;
-    }
-    
-    // read tag data.
-    *size = data_size;
-    *data = (char*)malloc(data_size);
-    if (read(flv_fd, *data, data_size) != data_size) {
-        ret = -1;
-        trace("read flv tag data failed. size=%d, ret=%d", data_size, ret);
-        return ret;
-    }
-    
-    // ignore 4bytes tag size.
-    if (read(flv_fd, ts, sizeof(ts)) != sizeof(ts)) {
-        ret = -1;
-        trace("read flv tag size failed. ret=%d", ret);
-        return ret;
-    }
-    
-    return ret;
 }

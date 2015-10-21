@@ -133,8 +133,8 @@ class RESTClients(object):
     def __on_connect(self, req):
         code = Error.success
 
-        trace("srs %s: client id=%s, ip=%s, vhost=%s, app=%s, pageUrl=%s"%(
-            req["action"], req["client_id"], req["ip"], req["vhost"], req["app"], req["pageUrl"]
+        trace("srs %s: client id=%s, ip=%s, vhost=%s, app=%s, tcUrl=%s, pageUrl=%s"%(
+            req["action"], req["client_id"], req["ip"], req["vhost"], req["app"], req["tcUrl"], req["pageUrl"]
         ))
 
         # TODO: process the on_connect event
@@ -325,56 +325,6 @@ class RESTSessions(object):
         # TODO: process the on_stop event
 
         return code
-        
-# the rest dvrs, when dvr got keyframe, call this api.
-class RESTDvrs(object):
-    exposed = True
-    def __init__(self):
-        pass
-    # the dvrs POST api specified in following.
-    #
-    # when dvr got an keyframe, call the hook,
-    # the request in the POST data string is a object encode by json:
-    #       {
-    #           "action": "on_dvr_keyframe",
-    #           "vhost": "video.test.com", "app": "live",
-    #           "stream": "livestream"
-    #       }
-    #
-    # if valid, the hook must return HTTP code 200(Stauts OK) and response
-    # an int value specifies the error code(0 corresponding to success):
-    #       0
-    def POST(self):
-        enable_crossdomain()
-
-        req = cherrypy.request.body.read()
-        trace("post to sessions, req=%s"%(req))
-        try:
-            json_req = json.loads(req)
-        except Exception, ex:
-            code = Error.system_parse_json
-            trace("parse the request to json failed, req=%s, ex=%s, code=%s"%(req, ex, code))
-            return str(code)
-            
-        action = json_req["action"]
-        if action == "on_dvr_keyframe":
-            code = self.__on_dvr_keyframe(json_req)
-        else:
-            code = Errors.request_invalid_action
-            trace("invalid request action: %s, code=%s"%(json_req["action"], code))
-            
-        return str(code)
-        
-    def __on_dvr_keyframe(self, req):
-        code = Error.success
-
-        trace("srs %s: vhost=%s, app=%s, stream=%s"%(
-            req["action"], req["vhost"], req["app"], req["stream"]
-        ))
-
-        # TODO: process the on_dvr_keyframe event
-
-        return code
 
 global_arm_server_id = os.getpid();
 class ArmServer:
@@ -428,8 +378,8 @@ class RESTServers(object):
         return None
         
     def __refresh_nodes(self):
-        has_dead_node = False
         while len(self.__nodes) > 0:
+            has_dead_node = False
             for node in self.__nodes:
                 if node.dead():
                     self.__nodes.remove(node)
@@ -598,10 +548,70 @@ class RESTServers(object):
                         "cubieboard": {
                             "meiyi": {
                                 "rtmp": {
-                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard&stream=live/livestream"
+                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard&stream=live/livestream",
+                                    "stream1": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard&stream=live/stream1",
+                                    "stream2": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard&stream=live/stream2",
+                                    "stream3": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard&stream=live/stream3",
+                                    "stream4": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard&stream=live/stream4",
+                                    "stream5": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard&stream=live/stream5",
+                                    "stream6": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard&stream=live/stream6",
+                                    "stream7": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard&stream=live/stream7"
                                 },
                                 "hls": {
-                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard&stream=live/livestream"
+                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard&stream=live/livestream",
+                                    "stream1": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard&stream=live/stream1",
+                                    "stream2": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard&stream=live/stream2",
+                                    "stream3": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard&stream=live/stream3",
+                                    "stream4": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard&stream=live/stream4",
+                                    "stream5": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard&stream=live/stream5",
+                                    "stream6": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard&stream=live/stream6",
+                                    "stream7": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard&stream=live/stream7"
+                                }
+                            },
+                            "meiyi-house": {
+                                "rtmp": {
+                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-house&stream=live/livestream"
+                                },
+                                "hls": {
+                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-house&stream=live/livestream"
+                                }
+                            },
+                            "meiyi-bk": {
+                                "rtmp": {
+                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/livestream",
+                                    "stream1": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream1",
+                                    "stream2": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream2",
+                                    "stream3": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream3",
+                                    "stream4": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream4",
+                                    "stream5": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream5",
+                                    "stream6": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream6",
+                                    "stream7": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream7"
+                                },
+                                "hls": {
+                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/livestream",
+                                    "stream1": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream1",
+                                    "stream2": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream2",
+                                    "stream3": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream3",
+                                    "stream4": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream4",
+                                    "stream5": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream5",
+                                    "stream6": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream6",
+                                    "stream7": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-bk&stream=live/stream7"
+                                }
+                            },
+                            "meiyi-dev1": {
+                                "rtmp": {
+                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-dev1&stream=live/livestream"
+                                },
+                                "hls": {
+                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-dev1&stream=live/livestream"
+                                }
+                            },
+                            "meiyi-dev2": {
+                                "rtmp": {
+                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=rtmp&device_id=chnvideo-meiyi-cubieboard-dev2&stream=live/livestream"
+                                },
+                                "hls": {
+                                    "livesteam": "http://demo.chnvideo.com:8085/api/v1/servers?id=ingest&action=hls&device_id=chnvideo-meiyi-cubieboard-dev2&stream=live/livestream"
                                 }
                             }
                         }
@@ -696,8 +706,8 @@ class RESTNodes(object):
         return None
         
     def __refresh_nodes(self):
-        has_dead_node = False
         while len(self.__nodes) > 0:
+            has_dead_node = False
             for node in self.__nodes:
                 if node.dead():
                     self.__nodes.remove(node)
@@ -1028,7 +1038,6 @@ class V1(object):
         self.clients = RESTClients()
         self.streams = RESTStreams()
         self.sessions = RESTSessions()
-        self.dvrs = RESTDvrs()
         self.chats = RESTChats()
         self.servers = RESTServers()
         self.nodes = RESTNodes()
@@ -1079,7 +1088,7 @@ if len(sys.argv) <= 1:
     print "For example:"
     print "    python %s 8085"%(sys.argv[0])
     print ""
-    print "See also: https://github.com/winlinvip/simple-rtmp-server"
+    print "See also: https://github.com/simple-rtmp-server/srs"
     sys.exit(1)
 
 # parse port from user options.

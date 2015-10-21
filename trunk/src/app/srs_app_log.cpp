@@ -33,6 +33,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <srs_app_config.hpp>
 #include <srs_kernel_error.hpp>
 #include <srs_app_utility.hpp>
+#include <srs_kernel_utility.hpp>
 
 SrsThreadContext::SrsThreadContext()
 {
@@ -79,17 +80,21 @@ SrsFastLog::~SrsFastLog()
         fd = -1;
     }
 
-    _srs_config->unsubscribe(this);
+    if (_srs_config) {
+        _srs_config->unsubscribe(this);
+    }
 }
 
 int SrsFastLog::initialize()
 {
     int ret = ERROR_SUCCESS;
     
-    _srs_config->subscribe(this);
-
-    log_to_file_tank = _srs_config->get_srs_log_tank_file();
-    _level = srs_get_log_level(_srs_config->get_srs_log_level());
+    if (_srs_config) {
+        _srs_config->subscribe(this);
+    
+        log_to_file_tank = _srs_config->get_log_tank_file();
+        _level = srs_get_log_level(_srs_config->get_log_level());
+    }
     
     return ret;
 }
@@ -192,7 +197,9 @@ void SrsFastLog::error(const char* tag, int context_id, const char* fmt, ...)
     va_end(ap);
 
     // add strerror() to error msg.
-    size += snprintf(log_data + size, LOG_MAX_SIZE - size, "(%s)", strerror(errno));
+    if (errno != 0) {
+        size += snprintf(log_data + size, LOG_MAX_SIZE - size, "(%s)", strerror(errno));
+    }
 
     write_log(fd, log_data, size, SrsLogLevel::Error);
 }
@@ -200,9 +207,13 @@ void SrsFastLog::error(const char* tag, int context_id, const char* fmt, ...)
 int SrsFastLog::on_reload_log_tank()
 {
     int ret = ERROR_SUCCESS;
+    
+    if (!_srs_config) {
+        return ret;
+    }
 
     bool tank = log_to_file_tank;
-    log_to_file_tank = _srs_config->get_srs_log_tank_file();
+    log_to_file_tank = _srs_config->get_log_tank_file();
 
     if (tank) {
         return ret;
@@ -224,7 +235,11 @@ int SrsFastLog::on_reload_log_level()
 {
     int ret = ERROR_SUCCESS;
     
-    _level = srs_get_log_level(_srs_config->get_srs_log_level());
+    if (!_srs_config) {
+        return ret;
+    }
+    
+    _level = srs_get_log_level(_srs_config->get_log_level());
     
     return ret;
 }
@@ -232,6 +247,10 @@ int SrsFastLog::on_reload_log_level()
 int SrsFastLog::on_reload_log_file()
 {
     int ret = ERROR_SUCCESS;
+    
+    if (!_srs_config) {
+        return ret;
+    }
 
     if (!log_to_file_tank) {
         return ret;
@@ -265,26 +284,26 @@ bool SrsFastLog::generate_header(bool error, const char* tag, int context_id, co
     if (error) {
         if (tag) {
             log_header_size = snprintf(log_data, LOG_MAX_SIZE, 
-                "[%d-%02d-%02d %02d:%02d:%02d.%03d][%s][%s][%d][%d] ", 
+                "[%d-%02d-%02d %02d:%02d:%02d.%03d][%s][%s][%d][%d][%d] ", 
                 1900 + tm->tm_year, 1 + tm->tm_mon, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec, (int)(tv.tv_usec / 1000), 
-                level_name, tag, context_id, errno);
+                level_name, tag, getpid(), context_id, errno);
         } else {
             log_header_size = snprintf(log_data, LOG_MAX_SIZE, 
-                "[%d-%02d-%02d %02d:%02d:%02d.%03d][%s][%d][%d] ", 
+                "[%d-%02d-%02d %02d:%02d:%02d.%03d][%s][%d][%d][%d] ", 
                 1900 + tm->tm_year, 1 + tm->tm_mon, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec, (int)(tv.tv_usec / 1000), 
-                level_name, context_id, errno);
+                level_name, getpid(), context_id, errno);
         }
     } else {
         if (tag) {
             log_header_size = snprintf(log_data, LOG_MAX_SIZE, 
-                "[%d-%02d-%02d %02d:%02d:%02d.%03d][%s][%s][%d] ", 
+                "[%d-%02d-%02d %02d:%02d:%02d.%03d][%s][%s][%d][%d] ", 
                 1900 + tm->tm_year, 1 + tm->tm_mon, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec, (int)(tv.tv_usec / 1000), 
-                level_name, tag, context_id);
+                level_name, tag, getpid(), context_id);
         } else {
             log_header_size = snprintf(log_data, LOG_MAX_SIZE, 
-                "[%d-%02d-%02d %02d:%02d:%02d.%03d][%s][%d] ", 
+                "[%d-%02d-%02d %02d:%02d:%02d.%03d][%s][%d][%d] ", 
                 1900 + tm->tm_year, 1 + tm->tm_mon, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec, (int)(tv.tv_usec / 1000), 
-                level_name, context_id);
+                level_name, getpid(), context_id);
         }
     }
 
@@ -307,7 +326,6 @@ void SrsFastLog::write_log(int& fd, char *str_log, int size, int level)
     
     // add some to the end of char.
     str_log[size++] = LOG_TAIL;
-    str_log[size++] = 0;
     
     // if not to file, to console and return.
     if (!log_to_file_tank) {
@@ -317,11 +335,11 @@ void SrsFastLog::write_log(int& fd, char *str_log, int size, int level)
         // \033[33m : yellow text code in shell
         // \033[0m : normal text code
         if (level <= SrsLogLevel::Trace) {
-            printf("%s", str_log);
+            printf("%.*s", size, str_log);
         } else if (level == SrsLogLevel::Warn) {
-            printf("\033[33m%s\033[0m", str_log);
+            printf("\033[33m%.*s\033[0m", size, str_log);
         } else{
-            printf("\033[31m%s\033[0m", str_log);
+            printf("\033[31m%.*s\033[0m", size, str_log);
         }
 
         return;
@@ -340,7 +358,11 @@ void SrsFastLog::write_log(int& fd, char *str_log, int size, int level)
 
 void SrsFastLog::open_log_file()
 {
-    std::string filename = _srs_config->get_srs_log_file();
+    if (!_srs_config) {
+        return;
+    }
+    
+    std::string filename = _srs_config->get_log_file();
     
     if (filename.empty()) {
         return;
@@ -355,3 +377,4 @@ void SrsFastLog::open_log_file()
         );
     }
 }
+

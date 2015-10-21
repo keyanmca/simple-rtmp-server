@@ -23,19 +23,21 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <srs_app_conn.hpp>
 
-#include <arpa/inet.h>
-
 #include <srs_kernel_log.hpp>
 #include <srs_kernel_error.hpp>
 #include <srs_app_server.hpp>
+#include <srs_app_utility.hpp>
 
 SrsConnection::SrsConnection(SrsServer* srs_server, st_netfd_t client_stfd)
 {
-    ip = NULL;
     server = srs_server;
     stfd = client_stfd;
-    connection_id = 0;
-    pthread = new SrsThread(this, 0);
+    
+    // the client thread should reap itself, 
+    // so we never use joinable.
+    // TODO: FIXME: maybe other thread need to stop it.
+    // @see: https://github.com/simple-rtmp-server/srs/issues/78
+    pthread = new SrsThread(this, 0, false);
 }
 
 SrsConnection::~SrsConnection()
@@ -53,7 +55,7 @@ int SrsConnection::cycle()
     int ret = ERROR_SUCCESS;
     
     _srs_context->generate_id();
-    connection_id = _srs_context->get_id();
+    ip = srs_get_peer_ip(st_netfd_fileno(stfd));
     
     ret = do_cycle();
     
@@ -64,7 +66,7 @@ int SrsConnection::cycle()
     
     // success.
     if (ret == ERROR_SUCCESS) {
-        srs_trace("client process normally finished. ret=%d", ret);
+        srs_trace("client finished.");
     }
     
     // client close peer.
@@ -80,6 +82,7 @@ int SrsConnection::cycle()
 
 void SrsConnection::on_thread_stop()
 {
+    // TODO: FIXME: never remove itself, use isolate thread to do cleanup.
     server->remove(this);
 }
 
@@ -87,41 +90,6 @@ void SrsConnection::stop()
 {
     srs_close_stfd(stfd);
     srs_freep(pthread);
-    srs_freep(ip);
 }
 
-int SrsConnection::get_peer_ip()
-{
-    int ret = ERROR_SUCCESS;
-    
-    int fd = st_netfd_fileno(stfd);
-    
-    // discovery client information
-    sockaddr_in addr;
-    socklen_t addrlen = sizeof(addr);
-    if (getpeername(fd, (sockaddr*)&addr, &addrlen) == -1) {
-        ret = ERROR_SOCKET_GET_PEER_NAME;
-        srs_error("discovery client information failed. ret=%d", ret);
-        return ret;
-    }
-    srs_verbose("get peer name success.");
-
-    // ip v4 or v6
-    char buf[INET6_ADDRSTRLEN];
-    memset(buf, 0, sizeof(buf));
-    
-    if ((inet_ntop(addr.sin_family, &addr.sin_addr, buf, sizeof(buf))) == NULL) {
-        ret = ERROR_SOCKET_GET_PEER_IP;
-        srs_error("convert client information failed. ret=%d", ret);
-        return ret;
-    }
-    srs_verbose("get peer ip of client ip=%s, fd=%d", buf, fd);
-    
-    ip = new char[strlen(buf) + 1];
-    strcpy(ip, buf);
-    
-    srs_verbose("get peer ip success. ip=%s, fd=%d", ip, fd);
-    
-    return ret;
-}
 

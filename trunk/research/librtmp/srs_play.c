@@ -38,29 +38,30 @@ int main(int argc, char** argv)
     u_int32_t timestamp = 0;
     char* data;
     
+    if (argc <= 1) {
+        printf("play stream on RTMP server\n"
+            "Usage: %s <rtmp_url>\n"
+            "   rtmp_url     RTMP stream url to play\n"
+            "For example:\n"
+            "   %s rtmp://127.0.0.1:1935/live/livestream\n",
+            argv[0], argv[0]);
+        int ret = 1;
+        exit(ret);
+        return ret;
+    }
+    
+    rtmp = srs_rtmp_create(argv[1]);
+    
     printf("suck rtmp stream like rtmpdump\n");
     printf("srs(simple-rtmp-server) client librtmp library.\n");
     printf("version: %d.%d.%d\n", srs_version_major(), srs_version_minor(), srs_version_revision());
+    printf("rtmp url: %s\n", argv[1]);
     
-    if (argc > 1) {
-        rtmp = srs_rtmp_create(argv[1]);
-    } else {
-        rtmp = srs_rtmp_create("rtmp://127.0.0.1:1935/live/livestream");
+    if (srs_simple_handshake(rtmp) != 0) {
+        printf("simple handshake failed.\n");
+        goto rtmp_destroy;
     }
-    
-    if (1) {
-        if (srs_complex_handshake(rtmp) != 0) {
-            printf("complex handshake failed.\n");
-            goto rtmp_destroy;
-        }
-        printf("complex handshake success\n");
-    } else {
-        if (srs_simple_handshake(rtmp) != 0) {
-            printf("simple handshake failed.\n");
-            goto rtmp_destroy;
-        }
-        printf("simple handshake success\n");
-    }
+    printf("simple handshake success\n");
     
     if (srs_connect_app(rtmp) != 0) {
         printf("connect vhost/app failed.\n");

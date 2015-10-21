@@ -43,8 +43,9 @@ class SrsPithyPrint;
 /**
 * ingester ffmpeg object.
 */
-struct SrsIngesterFFMPEG
+class SrsIngesterFFMPEG
 {
+public:
     std::string vhost;
     std::string id;
     SrsFFMPEG* ffmpeg;
@@ -93,3 +94,4 @@ public:
 
 #endif
 #endif
+
