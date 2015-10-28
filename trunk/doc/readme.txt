@@ -4,11 +4,6 @@ ffmpeg-min.png
 source.flv
     avatar预告片，400kbps。
     
-FreeSerifBold.ttf
-    字体文件，ffmpeg的drawtext filter需要使用。
-    参考：http://ffmpeg.org/ffmpeg-filters.html#drawtext-1
-    下载地址：http://www.fonts2u.com/free-serif.font
-    
 aac-iso-13818-7.pdf
     aac标准，aac的编码等。
     
@@ -23,6 +18,11 @@ amf3_spec_121207.pdf
     
 H.264-AVC-ISO_IEC_14496-10.pdf
     avc标准，编码部分。
+    
+H.264-AVC-ISO_IEC_14496-10-2012.pdf
+    avc标准，编码部分。
+    上面的标准是2003年的，和下面的15是2010年的对不上。
+    http://www.itu.int/ITU-T/recommendations/rec.aspx?rec=11466
     
 H.264-AVC-ISO_IEC_14496-15.pdf
     avc标准，封装部分。
@@ -45,6 +45,12 @@ rtmp.part3.Commands-Messages.pdf
 rtmp_specification_1.0.pdf
     adobe rtmp标准。
     
+rtmfp-rfc7016.pdf
+    adobe RTMFP, http://tools.ietf.org/html/rfc7016.
+    
+rtmfp-tsvarea-1.pdf
+    http://www.ietf.org/proceedings/10mar/slides/tsvarea-1.pdf
+    
 flv_v10_1.pdf
 video_file_format_spec_v10_1.pdf
     adobe f4v/flv标准。
@@ -56,5 +62,9 @@ http1.1-rfc2616.txt
     http://www.rfc-editor.org/rfc/rfc2616.txt
 arpa-internet-text-messages-rfc822.txt
     http://www.rfc-editor.org/rfc/rfc822.txt
+
+mp3规范：
+mp3.id3v2.3.0.pdf
+    http://id3.org/id3v2.3.0
 
 Winlin

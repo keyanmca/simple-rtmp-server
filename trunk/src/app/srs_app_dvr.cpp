@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -27,405 +27,566 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <fcntl.h>
 #include <sstream>
+#include <algorithm>
 using namespace std;
 
 #include <srs_app_config.hpp>
-#include <srs_kernel_error.hpp>
-#include <srs_protocol_rtmp.hpp>
-#include <srs_protocol_rtmp_stack.hpp>
-#include <srs_app_source.hpp>
+#include <srs_rtmp_stack.hpp>
 #include <srs_core_autofree.hpp>
-#include <srs_kernel_stream.hpp>
 #include <srs_kernel_utility.hpp>
 #include <srs_app_http_hooks.hpp>
-#include <srs_app_codec.hpp>
+#include <srs_kernel_codec.hpp>
+#include <srs_kernel_flv.hpp>
+#include <srs_kernel_file.hpp>
+#include <srs_rtmp_amf0.hpp>
+#include <srs_kernel_stream.hpp>
+#include <srs_protocol_json.hpp>
+#include <srs_app_utility.hpp>
 
-SrsFileStream::SrsFileStream()
+// update the flv duration and filesize every this interval in ms.
+#define SRS_DVR_UPDATE_DURATION_INTERVAL 60000
+
+SrsFlvSegment::SrsFlvSegment(SrsDvrPlan* p)
 {
-    fd = -1;
-}
+    req = NULL;
+    jitter = NULL;
+    plan = p;
 
-SrsFileStream::~SrsFileStream()
-{
-    close();
-}
+    fs = new SrsFileWriter();
+    enc = new SrsFlvEncoder();
+    jitter_algorithm = SrsRtmpJitterAlgorithmOFF;
 
-int SrsFileStream::open(string file)
-{
-    int ret = ERROR_SUCCESS;
-    
-    if (fd > 0) {
-        ret = ERROR_SYSTEM_FILE_ALREADY_OPENED;
-        srs_error("file %s already opened. ret=%d", _file.c_str(), ret);
-        return ret;
-    }
-    
-    int flags = O_CREAT|O_WRONLY|O_TRUNC;
-    mode_t mode = S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH;
-
-    if ((fd = ::open(file.c_str(), flags, mode)) < 0) {
-        ret = ERROR_SYSTEM_FILE_OPENE;
-        srs_error("open file %s failed. ret=%d", file.c_str(), ret);
-        return ret;
-    }
-    
-    _file = file;
-    
-    return ret;
-}
-
-int SrsFileStream::close()
-{
-    int ret = ERROR_SUCCESS;
-    
-    if (fd < 0) {
-        return ret;
-    }
-    
-    if (::close(fd) < 0) {
-        ret = ERROR_SYSTEM_FILE_CLOSE;
-        srs_error("close file %s failed. ret=%d", _file.c_str(), ret);
-        return ret;
-    }
-    fd = -1;
-    
-    return ret;
-}
-
-bool SrsFileStream::is_open()
-{
-    return fd > 0;
-}
-
-int SrsFileStream::read(void* buf, size_t count, ssize_t* pnread)
-{
-    int ret = ERROR_SUCCESS;
-    
-    ssize_t nread;
-    if ((nread = ::read(fd, buf, count)) < 0) {
-        ret = ERROR_SYSTEM_FILE_READ;
-        srs_error("read from file %s failed. ret=%d", _file.c_str(), ret);
-        return ret;
-    }
-    
-    if (nread == 0) {
-        ret = ERROR_SYSTEM_FILE_EOF;
-        return ret;
-    }
-    
-    if (pnread != NULL) {
-        *pnread = nread;
-    }
-    
-    return ret;
-}
-
-int SrsFileStream::write(void* buf, size_t count, ssize_t* pnwrite)
-{
-    int ret = ERROR_SUCCESS;
-    
-    ssize_t nwrite;
-    if ((nwrite = ::write(fd, buf, count)) < 0) {
-        ret = ERROR_SYSTEM_FILE_WRITE;
-        srs_error("write to file %s failed. ret=%d", _file.c_str(), ret);
-        return ret;
-    }
-    
-    if (pnwrite != NULL) {
-        *pnwrite = nwrite;
-    }
-    
-    return ret;
-}
-
-int64_t SrsFileStream::tellg()
-{
-    return (int64_t)::lseek(fd, 0, SEEK_CUR);
-}
-
-SrsFlvEncoder::SrsFlvEncoder()
-{
-    _fs = NULL;
-    tag_stream = new SrsStream();
-}
-
-SrsFlvEncoder::~SrsFlvEncoder()
-{
-    srs_freep(tag_stream);
-}
-
-int SrsFlvEncoder::initialize(SrsFileStream* fs)
-{
-    int ret = ERROR_SUCCESS;
-    
-    _fs = fs;
-    
-    return ret;
-}
-
-int SrsFlvEncoder::write_header()
-{
-    int ret = ERROR_SUCCESS;
-    
-    static char flv_header[] = {
-        'F', 'L', 'V', // Signatures "FLV"
-        (char)0x01, // File version (for example, 0x01 for FLV version 1)
-        (char)0x00, // 4, audio; 1, video; 5 audio+video.
-        (char)0x00, (char)0x00, (char)0x00, (char)0x09, // DataOffset UI32 The length of this header in bytes
-        (char)0x00, (char)0x00, (char)0x00, (char)0x00// PreviousTagSize0 UI32 Always 0
-    };
-    
-    // flv specification should set the audio and video flag,
-    // actually in practise, application generally ignore this flag,
-    // so we generally set the audio/video to 0.
-    
-    // write data.
-    if ((ret = _fs->write(flv_header, sizeof(flv_header), NULL)) != ERROR_SUCCESS) {
-        srs_error("write flv header failed. ret=%d", ret);
-        return ret;
-    }
-    
-    return ret;
-}
-
-int SrsFlvEncoder::write_metadata(char* data, int size)
-{
-    int ret = ERROR_SUCCESS;
-    
-    static char tag_header[] = {
-        (char)18, // TagType UB [5], 18 = script data
-        (char)0x00, (char)0x00, (char)0x00, // DataSize UI24 Length of the message.
-        (char)0x00, (char)0x00, (char)0x00, // Timestamp UI24 Time in milliseconds at which the data in this tag applies.
-        (char)0x00, // TimestampExtended UI8
-        (char)0x00, (char)0x00, (char)0x00, // StreamID UI24 Always 0.
-    };
-    
-    // write data size.
-    if ((ret = tag_stream->initialize(tag_header + 1, 3)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    tag_stream->write_3bytes(size);
-    
-    if ((ret = write_tag(tag_header, sizeof(tag_header), data, size)) != ERROR_SUCCESS) {
-        srs_error("write flv data tag failed. ret=%d", ret);
-        return ret;
-    }
-    
-    return ret;
-}
-
-int SrsFlvEncoder::write_audio(int64_t timestamp, char* data, int size)
-{
-    int ret = ERROR_SUCCESS;
-    
-    timestamp &= 0x7fffffff;
-    
-    static char tag_header[] = {
-        (char)8, // TagType UB [5], 8 = audio
-        (char)0x00, (char)0x00, (char)0x00, // DataSize UI24 Length of the message.
-        (char)0x00, (char)0x00, (char)0x00, // Timestamp UI24 Time in milliseconds at which the data in this tag applies.
-        (char)0x00, // TimestampExtended UI8
-        (char)0x00, (char)0x00, (char)0x00, // StreamID UI24 Always 0.
-    };
-    
-    // write data size.
-    if ((ret = tag_stream->initialize(tag_header + 1, 7)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    tag_stream->write_3bytes(size);
-    tag_stream->write_3bytes(timestamp);
-    // default to little-endian
-    tag_stream->write_1bytes((timestamp >> 24) & 0xFF);
-    
-    if ((ret = write_tag(tag_header, sizeof(tag_header), data, size)) != ERROR_SUCCESS) {
-        srs_error("write flv audio tag failed. ret=%d", ret);
-        return ret;
-    }
-    
-    return ret;
-}
-
-int SrsFlvEncoder::write_video(int64_t timestamp, char* data, int size)
-{
-    int ret = ERROR_SUCCESS;
-    
-    timestamp &= 0x7fffffff;
-    
-    static char tag_header[] = {
-        (char)9, // TagType UB [5], 9 = video
-        (char)0x00, (char)0x00, (char)0x00, // DataSize UI24 Length of the message.
-        (char)0x00, (char)0x00, (char)0x00, // Timestamp UI24 Time in milliseconds at which the data in this tag applies.
-        (char)0x00, // TimestampExtended UI8
-        (char)0x00, (char)0x00, (char)0x00, // StreamID UI24 Always 0.
-    };
-    
-    // write data size.
-    if ((ret = tag_stream->initialize(tag_header + 1, 7)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    tag_stream->write_3bytes(size);
-    tag_stream->write_3bytes(timestamp);
-    // default to little-endian
-    tag_stream->write_1bytes((timestamp >> 24) & 0xFF);
-    
-    if ((ret = write_tag(tag_header, sizeof(tag_header), data, size)) != ERROR_SUCCESS) {
-        srs_error("write flv video tag failed. ret=%d", ret);
-        return ret;
-    }
-    
-    return ret;
-}
-
-int SrsFlvEncoder::write_tag(char* header, int header_size, char* tag, int tag_size)
-{
-    int ret = ERROR_SUCCESS;
-    
-    // write tag header.
-    if ((ret = _fs->write(header, header_size, NULL)) != ERROR_SUCCESS) {
-        srs_error("write flv tag header failed. ret=%d", ret);
-        return ret;
-    }
-    
-    // write tag data.
-    if ((ret = _fs->write(tag, tag_size, NULL)) != ERROR_SUCCESS) {
-        srs_error("write flv tag failed. ret=%d", ret);
-        return ret;
-    }
-    
-    // PreviousTagSizeN UI32 Size of last tag, including its header, in bytes.
-    static char pre_size[4];
-    if ((ret = tag_stream->initialize(pre_size, 4)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    tag_stream->write_4bytes(tag_size + header_size);
-    if ((ret = _fs->write(pre_size, sizeof(pre_size), NULL)) != ERROR_SUCCESS) {
-        srs_error("write flv previous tag size failed. ret=%d", ret);
-        return ret;
-    }
-    
-    return ret;
-}
-
-SrsFlvSegment::SrsFlvSegment()
-{
     path = "";
     has_keyframe = false;
     duration = 0;
     starttime = -1;
-    sequence_header_offset = 0;
     stream_starttime = 0;
     stream_previous_pkt_time = -1;
     stream_duration = 0;
+
+    duration_offset = 0;
+    filesize_offset = 0;
+
+    _srs_config->subscribe(this);
 }
 
-void SrsFlvSegment::reset()
+SrsFlvSegment::~SrsFlvSegment()
 {
-    has_keyframe = false;
-    starttime = -1;
-    duration = 0;
-    sequence_header_offset = 0;
+    _srs_config->unsubscribe(this);
+
+    srs_freep(jitter);
+    srs_freep(fs);
+    srs_freep(enc);
+}
+
+int SrsFlvSegment::initialize(SrsRequest* r)
+{
+    int ret = ERROR_SUCCESS;
+
+    req = r;
+    jitter_algorithm = (SrsRtmpJitterAlgorithm)_srs_config->get_dvr_time_jitter(req->vhost);
+
+    return ret;
+}
+
+bool SrsFlvSegment::is_overflow(int64_t max_duration)
+{
+    return duration >= max_duration;
+}
+
+int SrsFlvSegment::open(bool use_tmp_file)
+{
+    int ret = ERROR_SUCCESS;
+    
+    // ignore when already open.
+    if (fs->is_open()) {
+        return ret;
+    }
+
+    path = generate_path();
+    bool fresh_flv_file = !srs_path_exists(path);
+    
+    // create dir first.
+    std::string dir = path.substr(0, path.rfind("/"));
+    if ((ret = srs_create_dir_recursively(dir)) != ERROR_SUCCESS) {
+        srs_error("create dir=%s failed. ret=%d", dir.c_str(), ret);
+        return ret;
+    }
+    srs_info("create dir=%s ok", dir.c_str());
+
+    // create jitter.
+    if ((ret = create_jitter(!fresh_flv_file)) != ERROR_SUCCESS) {
+        srs_error("create jitter failed, path=%s, fresh=%d. ret=%d", path.c_str(), fresh_flv_file, ret);
+        return ret;
+    }
+    
+    // generate the tmp flv path.
+    if (!fresh_flv_file || !use_tmp_file) {
+        // when path exists, always append to it.
+        // so we must use the target flv path as output flv.
+        tmp_flv_file = path;
+    } else {
+        // when path not exists, dvr to tmp file.
+        tmp_flv_file = path + ".tmp";
+    }
+    
+    // open file writer, in append or create mode.
+    if (!fresh_flv_file) {
+        if ((ret = fs->open_append(tmp_flv_file)) != ERROR_SUCCESS) {
+            srs_error("append file stream for file %s failed. ret=%d", path.c_str(), ret);
+            return ret;
+        }
+        srs_trace("dvr: always append to when exists, file=%s.", path.c_str());
+    } else {
+        if ((ret = fs->open(tmp_flv_file)) != ERROR_SUCCESS) {
+            srs_error("open file stream for file %s failed. ret=%d", path.c_str(), ret);
+            return ret;
+        }
+    }
+
+    // initialize the encoder.
+    if ((ret = enc->initialize(fs)) != ERROR_SUCCESS) {
+        srs_error("initialize enc by fs for file %s failed. ret=%d", path.c_str(), ret);
+        return ret;
+    }
+    
+    // when exists, donot write flv header.
+    if (fresh_flv_file) {
+        // write the flv header to writer.
+        if ((ret = enc->write_header()) != ERROR_SUCCESS) {
+            srs_error("write flv header failed. ret=%d", ret);
+            return ret;
+        }
+    }
+
+    // update the duration and filesize offset.
+    duration_offset = 0;
+    filesize_offset = 0;
+    
+    srs_trace("dvr stream %s to file %s", req->stream.c_str(), path.c_str());
+
+    return ret;
+}
+
+int SrsFlvSegment::close()
+{
+    int ret = ERROR_SUCCESS;
+    
+    // ignore when already closed.
+    if (!fs->is_open()) {
+        return ret;
+    }
+
+    // update duration and filesize.
+    if ((ret = update_flv_metadata()) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    fs->close();
+    
+    // when tmp flv file exists, reap it.
+    if (tmp_flv_file != path) {
+        if (rename(tmp_flv_file.c_str(), path.c_str()) < 0) {
+            ret = ERROR_SYSTEM_FILE_RENAME;
+            srs_error("rename flv file failed, %s => %s. ret=%d", 
+                tmp_flv_file.c_str(), path.c_str(), ret);
+            return ret;
+        }
+    }
+
+    // TODO: FIXME: the http callback is async, which will trigger thread switch,
+    //          so the on_video maybe invoked during the http callback, and error.
+    if ((ret = plan->on_reap_segment()) != ERROR_SUCCESS) {
+        srs_error("dvr: notify plan to reap segment failed. ret=%d", ret);
+        return ret;
+    }
+
+    return ret;
+}
+
+int SrsFlvSegment::write_metadata(SrsSharedPtrMessage* metadata)
+{
+    int ret = ERROR_SUCCESS;
+
+    if (duration_offset || filesize_offset) {
+        return ret;
+    }
+
+    SrsStream stream;
+    if ((ret = stream.initialize(metadata->payload, metadata->size)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    SrsAmf0Any* name = SrsAmf0Any::str();
+    SrsAutoFree(SrsAmf0Any, name);
+    if ((ret = name->read(&stream)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    SrsAmf0Object* obj = SrsAmf0Any::object();
+    SrsAutoFree(SrsAmf0Object, obj);
+    if ((ret = obj->read(&stream)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    // remove duration and filesize.
+    obj->set("filesize", NULL);
+    obj->set("duration", NULL);
+
+    // add properties.
+    obj->set("service", SrsAmf0Any::str(RTMP_SIG_SRS_SERVER));
+    obj->set("filesize", SrsAmf0Any::number(0));
+    obj->set("duration", SrsAmf0Any::number(0));
+    
+    int size = name->total_size() + obj->total_size();
+    char* payload = new char[size];
+    SrsAutoFree(char, payload);
+
+    // 11B flv header, 3B object EOF, 8B number value, 1B number flag.
+    duration_offset = fs->tellg() + size + 11 - SrsAmf0Size::object_eof() - SrsAmf0Size::number();
+    // 2B string flag, 8B number value, 8B string 'duration', 1B number flag
+    filesize_offset = duration_offset - SrsAmf0Size::utf8("duration") - SrsAmf0Size::number();
+
+    // convert metadata to bytes.
+    if ((ret = stream.initialize(payload, size)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    if ((ret = name->write(&stream)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    if ((ret = obj->write(&stream)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    // to flv file.
+    if ((ret = enc->write_metadata(18, payload, size)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    return ret;
+}
+
+int SrsFlvSegment::write_audio(SrsSharedPtrMessage* shared_audio)
+{
+    int ret = ERROR_SUCCESS;
+
+    SrsSharedPtrMessage* audio = shared_audio->copy();
+    SrsAutoFree(SrsSharedPtrMessage, audio);
+    
+    if ((jitter->correct(audio, jitter_algorithm)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    char* payload = audio->payload;
+    int size = audio->size;
+    int64_t timestamp = plan->filter_timestamp(audio->timestamp);
+    if ((ret = enc->write_audio(timestamp, payload, size)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    if ((ret = on_update_duration(audio)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    return ret;
+}
+
+int SrsFlvSegment::write_video(SrsSharedPtrMessage* shared_video)
+{
+    int ret = ERROR_SUCCESS;
+
+    SrsSharedPtrMessage* video = shared_video->copy();
+    SrsAutoFree(SrsSharedPtrMessage, video);
+    
+    char* payload = video->payload;
+    int size = video->size;
+    
+    bool is_sequence_header = SrsFlvCodec::video_is_sequence_header(payload, size);
+#ifdef SRS_AUTO_HTTP_CALLBACK
+    bool is_key_frame = SrsFlvCodec::video_is_h264(payload, size) 
+        && SrsFlvCodec::video_is_keyframe(payload, size) && !is_sequence_header;
+    if (is_key_frame) {
+        has_keyframe = true;
+        if ((ret = plan->on_video_keyframe()) != ERROR_SUCCESS) {
+            return ret;
+        }
+    }
+    srs_verbose("dvr video is key: %d", is_key_frame);
+#endif
+
+    // accept the sequence header here.
+    // when got no keyframe, ignore when should wait keyframe.
+    if (!has_keyframe && !is_sequence_header) {
+        bool wait_keyframe = _srs_config->get_dvr_wait_keyframe(req->vhost);
+        if (wait_keyframe) {
+            srs_info("dvr: ignore when wait keyframe.");
+            return ret;
+        }
+    }
+    
+    if ((jitter->correct(video, jitter_algorithm)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    // update segment duration, session plan just update the duration,
+    // the segment plan will reap segment if exceed, this video will write to next segment.
+    if ((ret = on_update_duration(video)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    int32_t timestamp = (int32_t)plan->filter_timestamp(video->timestamp);
+    if ((ret = enc->write_video(timestamp, payload, size)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    return ret;
+}
+
+int SrsFlvSegment::update_flv_metadata()
+{
+    int ret = ERROR_SUCCESS;
+
+    // no duration or filesize specified.
+    if (!duration_offset || !filesize_offset) {
+        return ret;
+    }
+
+    int64_t cur = fs->tellg();
+
+    // buffer to write the size.
+    char* buf = new char[SrsAmf0Size::number()];
+    SrsAutoFree(char, buf);
+
+    SrsStream stream;
+    if ((ret = stream.initialize(buf, SrsAmf0Size::number())) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    // filesize to buf.
+    SrsAmf0Any* size = SrsAmf0Any::number((double)cur);
+    SrsAutoFree(SrsAmf0Any, size);
+
+    stream.skip(-1 * stream.pos());
+    if ((ret = size->write(&stream)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    // update the flesize.
+    fs->lseek(filesize_offset);
+    if ((ret = fs->write(buf, SrsAmf0Size::number(), NULL)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    // duration to buf
+    SrsAmf0Any* dur = SrsAmf0Any::number((double)duration / 1000.0);
+    SrsAutoFree(SrsAmf0Any, dur);
+    
+    stream.skip(-1 * stream.pos());
+    if ((ret = dur->write(&stream)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    // update the duration
+    fs->lseek(duration_offset);
+    if ((ret = fs->write(buf, SrsAmf0Size::number(), NULL)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    // reset the offset.
+    fs->lseek(cur);
+
+    return ret;
+}
+
+string SrsFlvSegment::get_path()
+{
+    return path;
+}
+
+string SrsFlvSegment::generate_path()
+{
+    // the path in config, for example, 
+    //      /data/[vhost]/[app]/[stream]/[2006]/[01]/[02]/[15].[04].[05].[999].flv
+    std::string path_config = _srs_config->get_dvr_path(req->vhost);
+    
+    // add [stream].[timestamp].flv as filename for dir
+    if (path_config.find(".flv") != path_config.length() - 4) {
+        path_config += "/[stream].[timestamp].flv";
+    }
+    
+    // the flv file path
+    std::string flv_path = path_config;
+    flv_path = srs_path_build_stream(flv_path, req->vhost, req->app, req->stream);
+    flv_path = srs_path_build_timestamp(flv_path);
+
+    return flv_path;
+}
+
+int SrsFlvSegment::create_jitter(bool loads_from_flv)
+{
+    int ret = ERROR_SUCCESS;
+    
+    // when path exists, use exists jitter.
+    if (!loads_from_flv) {
+        // jitter when publish, ensure whole stream start from 0.
+        srs_freep(jitter);
+        jitter = new SrsRtmpJitter();
+
+        // fresh stream starting.
+        starttime = -1;
+        stream_previous_pkt_time = -1;
+        stream_starttime = srs_update_system_time_ms();
+        stream_duration = 0;
+    
+        // fresh segment starting.
+        has_keyframe = false;
+        duration = 0;
+
+        return ret;
+    }
+
+    // when jitter ok, do nothing.
+    if (jitter) {
+        return ret;
+    }
+
+    // always ensure the jitter crote.
+    // for the first time, initialize jitter from exists file.
+    jitter = new SrsRtmpJitter();
+
+    // TODO: FIXME: implements it.
+
+    return ret;
+}
+
+int SrsFlvSegment::on_update_duration(SrsSharedPtrMessage* msg)
+{
+    int ret = ERROR_SUCCESS;
+    
+    // we must assumpt that the stream timestamp is monotonically increase,
+    // that is, always use time jitter to correct the timestamp.
+    // except the time jitter is disabled in config.
+    
+    // set the segment starttime at first time
+    if (starttime < 0) {
+        starttime = msg->timestamp;
+    }
+    
+    // no previous packet or timestamp overflow.
+    if (stream_previous_pkt_time < 0 || stream_previous_pkt_time > msg->timestamp) {
+        stream_previous_pkt_time = msg->timestamp;
+    }
+    
+    // collect segment and stream duration, timestamp overflow is ok.
+    duration += msg->timestamp - stream_previous_pkt_time;
+    stream_duration += msg->timestamp - stream_previous_pkt_time;
+    
+    // update previous packet time
+    stream_previous_pkt_time = msg->timestamp;
+    
+    return ret;
+}
+
+int SrsFlvSegment::on_reload_vhost_dvr(std::string /*vhost*/)
+{
+    int ret = ERROR_SUCCESS;
+    
+    jitter_algorithm = (SrsRtmpJitterAlgorithm)_srs_config->get_dvr_time_jitter(req->vhost);
+    
+    return ret;
+}
+
+SrsDvrAsyncCallOnDvr::SrsDvrAsyncCallOnDvr(int c, SrsRequest* r, string p)
+{
+    cid = c;
+    req = r->copy();
+    path = p;
+}
+
+SrsDvrAsyncCallOnDvr::~SrsDvrAsyncCallOnDvr()
+{
+    srs_freep(req);
+}
+
+int SrsDvrAsyncCallOnDvr::call()
+{
+    int ret = ERROR_SUCCESS;
+    
+#ifdef SRS_AUTO_HTTP_CALLBACK
+    if (!_srs_config->get_vhost_http_hooks_enabled(req->vhost)) {
+        return ret;
+    }
+    
+    // the http hooks will cause context switch,
+    // so we must copy all hooks for the on_connect may freed.
+    // @see https://github.com/simple-rtmp-server/srs/issues/475
+    vector<string> hooks;
+    
+    if (true) {
+        SrsConfDirective* conf = _srs_config->get_vhost_on_dvr(req->vhost);
+        
+        if (!conf) {
+            srs_info("ignore the empty http callback: on_dvr");
+            return ret;
+        }
+        
+        hooks = conf->args;
+    }
+    
+    for (int i = 0; i < (int)hooks.size(); i++) {
+        std::string url = hooks.at(i);
+        if ((ret = SrsHttpHooks::on_dvr(cid, url, req, path)) != ERROR_SUCCESS) {
+            srs_error("hook client on_dvr failed. url=%s, ret=%d", url.c_str(), ret);
+            return ret;
+        }
+    }
+#endif
+
+    return ret;
+}
+
+string SrsDvrAsyncCallOnDvr::to_string()
+{
+    std::stringstream ss;
+    ss << "vhost=" << req->vhost << ", file=" << path;
+    return ss.str();
 }
 
 SrsDvrPlan::SrsDvrPlan()
 {
-    _source = NULL;
-    _req = NULL;
-    jitter = NULL;
+    req = NULL;
+
     dvr_enabled = false;
-    fs = new SrsFileStream();
-    enc = new SrsFlvEncoder();
-    segment = new SrsFlvSegment();
+    segment = new SrsFlvSegment(this);
+    async = new SrsAsyncCallWorker();
 }
 
 SrsDvrPlan::~SrsDvrPlan()
 {
-    srs_freep(jitter);
-    srs_freep(fs);
-    srs_freep(enc);
     srs_freep(segment);
+    srs_freep(async);
 }
 
-int SrsDvrPlan::initialize(SrsSource* source, SrsRequest* req)
+int SrsDvrPlan::initialize(SrsRequest* r)
 {
     int ret = ERROR_SUCCESS;
     
-    _source = source;
-    _req = req;
+    req = r;
 
-    return ret;
-}
-
-int SrsDvrPlan::on_publish()
-{
-    int ret = ERROR_SUCCESS;
-    
-    // support multiple publish.
-    if (dvr_enabled) {
+    if ((ret = segment->initialize(r)) != ERROR_SUCCESS) {
         return ret;
     }
-    
-    SrsRequest* req = _req;
 
-    if (!_srs_config->get_dvr_enabled(req->vhost)) {
+    if ((ret = async->start()) != ERROR_SUCCESS) {
         return ret;
     }
-    
-    // jitter when publish, ensure whole stream start from 0.
-    srs_freep(jitter);
-    jitter = new SrsRtmpJitter();
-    
-    // always update time cache.
-    srs_update_system_time_ms();
-    
-    // when republish, stream starting.
-    segment->stream_previous_pkt_time = -1;
-    segment->stream_starttime = srs_get_system_time_ms();
-    segment->stream_duration = 0;
-    
-    if ((ret = open_new_segment()) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    return ret;
-}
 
-int SrsDvrPlan::open_new_segment()
-{
-    int ret = ERROR_SUCCESS;
-    
-    SrsRequest* req = _req;
-    
-    // new flv file
-    std::stringstream path;
-    
-    path << _srs_config->get_dvr_path(req->vhost)
-        << "/" << req->app << "/" 
-        << req->stream << "." << srs_get_system_time_ms() << ".flv";
-    
-    if ((ret = flv_open(req->get_stream_url(), path.str())) != ERROR_SUCCESS) {
-        return ret;
-    }
-    dvr_enabled = true;
-    
-    return ret;
-}
-
-int SrsDvrPlan::on_dvr_request_sh()
-{
-    int ret = ERROR_SUCCESS;
-    
-    // the dvr is enabled, notice the source to push the data.
-    if ((ret = _source->on_dvr_request_sh()) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
     return ret;
 }
 
 int SrsDvrPlan::on_video_keyframe()
 {
-    int ret = ERROR_SUCCESS;
-    return ret;
+    return ERROR_SUCCESS;
 }
 
 int64_t SrsDvrPlan::filter_timestamp(int64_t timestamp)
@@ -433,7 +594,7 @@ int64_t SrsDvrPlan::filter_timestamp(int64_t timestamp)
     return timestamp;
 }
 
-int SrsDvrPlan::on_meta_data(SrsOnMetaDataPacket* metadata)
+int SrsDvrPlan::on_meta_data(SrsSharedPtrMessage* shared_metadata)
 {
     int ret = ERROR_SUCCESS;
     
@@ -441,209 +602,63 @@ int SrsDvrPlan::on_meta_data(SrsOnMetaDataPacket* metadata)
         return ret;
     }
     
-    int size = 0;
-    char* payload = NULL;
-    if ((ret = metadata->encode(size, payload)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    SrsAutoFree(char, payload, true);
-    
-    if ((ret = enc->write_metadata(payload, size)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    return ret;
+    return segment->write_metadata(shared_metadata);
 }
 
-int SrsDvrPlan::on_audio(SrsSharedPtrMessage* audio)
+int SrsDvrPlan::on_audio(SrsSharedPtrMessage* shared_audio)
 {
     int ret = ERROR_SUCCESS;
     
     if (!dvr_enabled) {
         return ret;
     }
-    
-    if ((jitter->correct(audio, 0, 0)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    char* payload = (char*)audio->payload;
-    int size = (int)audio->size;
-    int64_t timestamp = filter_timestamp(audio->header.timestamp);
-    if ((ret = enc->write_audio(timestamp, payload, size)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    if ((ret = update_duration(audio)) != ERROR_SUCCESS) {
+
+    if ((ret = segment->write_audio(shared_audio)) != ERROR_SUCCESS) {
         return ret;
     }
     
     return ret;
 }
 
-int SrsDvrPlan::on_video(SrsSharedPtrMessage* video)
+int SrsDvrPlan::on_video(SrsSharedPtrMessage* shared_video)
 {
     int ret = ERROR_SUCCESS;
     
     if (!dvr_enabled) {
         return ret;
     }
-    
-    char* payload = (char*)video->payload;
-    int size = (int)video->size;
-    
-#ifdef SRS_AUTO_HTTP_CALLBACK
-    bool is_key_frame = SrsCodec::video_is_h264((int8_t*)payload, size) 
-        && SrsCodec::video_is_keyframe((int8_t*)payload, size) 
-        && !SrsCodec::video_is_sequence_header((int8_t*)payload, size);
-    if (is_key_frame) {
-        segment->has_keyframe = true;
-        if ((ret = on_video_keyframe()) != ERROR_SUCCESS) {
-            return ret;
-        }
-    }
-    srs_verbose("dvr video is key: %d", is_key_frame);
-#endif
-    
-    if ((jitter->correct(video, 0, 0)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    int32_t timestamp = filter_timestamp(video->header.timestamp);
-    if ((ret = enc->write_video(timestamp, payload, size)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    if ((ret = update_duration(video)) != ERROR_SUCCESS) {
+
+    if ((ret = segment->write_video(shared_video)) != ERROR_SUCCESS) {
         return ret;
     }
     
     return ret;
 }
 
-int SrsDvrPlan::flv_open(string stream, string path)
-{
-    int ret = ERROR_SUCCESS;
-    
-    segment->reset();
-    
-    std::string tmp_file = path + ".tmp";
-    if ((ret = fs->open(tmp_file)) != ERROR_SUCCESS) {
-        srs_error("open file stream for file %s failed. ret=%d", path.c_str(), ret);
-        return ret;
-    }
-    
-    if ((ret = enc->initialize(fs)) != ERROR_SUCCESS) {
-        srs_error("initialize enc by fs for file %s failed. ret=%d", path.c_str(), ret);
-        return ret;
-    }
-    
-    if ((ret = write_flv_header()) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    segment->path = path;
-    
-    srs_trace("dvr stream %s to file %s", stream.c_str(), path.c_str());
-    return ret;
-}
-
-int SrsDvrPlan::flv_close()
-{
-    int ret = ERROR_SUCCESS;
-    
-    if ((ret = fs->close()) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    std::string tmp_file = segment->path + ".tmp";
-    if (rename(tmp_file.c_str(), segment->path.c_str()) < 0) {
-        ret = ERROR_SYSTEM_FILE_RENAME;
-        srs_error("rename flv file failed, %s => %s. ret=%d", 
-            tmp_file.c_str(), segment->path.c_str(), ret);
-        return ret;
-    }
-    
-#ifdef SRS_AUTO_HTTP_CALLBACK
-    if ((ret = on_dvr_hss_reap_flv()) != ERROR_SUCCESS) {
-        return ret;
-    }
-#endif
-    
-    return ret;
-}
-
-int SrsDvrPlan::update_duration(SrsSharedPtrMessage* msg)
+int SrsDvrPlan::on_reap_segment()
 {
     int ret = ERROR_SUCCESS;
 
-    // we must assumpt that the stream timestamp is monotonically increase,
-    // that is, always use time jitter to correct the timestamp.
-    
-    // set the segment starttime at first time
-    if (segment->starttime < 0) {
-        segment->starttime = msg->header.timestamp;
-    }
-    
-    // no previous packet or timestamp overflow.
-    if (segment->stream_previous_pkt_time < 0 || segment->stream_previous_pkt_time > msg->header.timestamp) {
-        segment->stream_previous_pkt_time = msg->header.timestamp;
-    }
-    
-    // collect segment and stream duration, timestamp overflow is ok.
-    segment->duration += msg->header.timestamp - segment->stream_previous_pkt_time;
-    segment->stream_duration += msg->header.timestamp - segment->stream_previous_pkt_time;
-    
-    // update previous packet time
-    segment->stream_previous_pkt_time = msg->header.timestamp;
-    
-    return ret;
-}
-
-int SrsDvrPlan::write_flv_header()
-{
-    int ret = ERROR_SUCCESS;
-    
-    if ((ret = enc->write_header()) != ERROR_SUCCESS) {
-        srs_error("write flv header failed. ret=%d", ret);
+    int cid = _srs_context->get_id();
+    if ((ret = async->execute(new SrsDvrAsyncCallOnDvr(cid, req, segment->get_path()))) != ERROR_SUCCESS) {
         return ret;
     }
-    
-    return ret;
-}
 
-int SrsDvrPlan::on_dvr_hss_reap_flv()
-{
-    int ret = ERROR_SUCCESS;
-    
-#ifdef SRS_AUTO_HTTP_CALLBACK
-    // HTTP: on_dvr_hss_reap_flv 
-    SrsConfDirective* on_dvr_hss_reap_flv = _srs_config->get_vhost_on_dvr_hss_reap_flv(_req->vhost);
-    if (!on_dvr_hss_reap_flv) {
-        srs_info("ignore the empty http callback: on_dvr_hss_reap_flv");
-        return ret;
-    }
-    
-    for (int i = 0; i < (int)on_dvr_hss_reap_flv->args.size(); i++) {
-        std::string url = on_dvr_hss_reap_flv->args.at(i);
-        SrsHttpHooks::on_dvr_hss_reap_flv(url, _req, segment);
-    }
-#endif
-    
     return ret;
 }
 
 SrsDvrPlan* SrsDvrPlan::create_plan(string vhost)
 {
     std::string plan = _srs_config->get_dvr_plan(vhost);
-    if (plan == SRS_CONF_DEFAULT_DVR_PLAN_SEGMENT) {
+    if (srs_config_dvr_is_plan_segment(plan)) {
         return new SrsDvrSegmentPlan();
-    } else if (plan == SRS_CONF_DEFAULT_DVR_PLAN_SESSION) {
+    } else if (srs_config_dvr_is_plan_session(plan)) {
         return new SrsDvrSessionPlan();
-    } else if (plan == SRS_CONF_DEFAULT_DVR_PLAN_HSS) {
-        return new SrsDvrHssPlan();
+    } else if (srs_config_dvr_is_plan_append(plan)) {
+        return new SrsDvrAppendPlan();
     } else {
-        return new SrsDvrSessionPlan();
+        srs_error("invalid dvr plan=%s, vhost=%s", plan.c_str(), vhost.c_str());
+        srs_assert(false);
     }
 }
 
@@ -655,6 +670,32 @@ SrsDvrSessionPlan::~SrsDvrSessionPlan()
 {
 }
 
+int SrsDvrSessionPlan::on_publish()
+{
+    int ret = ERROR_SUCCESS;
+    
+    // support multiple publish.
+    if (dvr_enabled) {
+        return ret;
+    }
+
+    if (!_srs_config->get_dvr_enabled(req->vhost)) {
+        return ret;
+    }
+
+    if ((ret = segment->close()) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    if ((ret = segment->open()) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    dvr_enabled = true;
+
+    return ret;
+}
+
 void SrsDvrSessionPlan::on_unpublish()
 {
     // support multiple publish.
@@ -663,7 +704,7 @@ void SrsDvrSessionPlan::on_unpublish()
     }
     
     // ignore error.
-    int ret = flv_close();
+    int ret = segment->close();
     if (ret != ERROR_SUCCESS) {
         srs_warn("ignore flv close error. ret=%d", ret);
     }
@@ -671,20 +712,116 @@ void SrsDvrSessionPlan::on_unpublish()
     dvr_enabled = false;
 }
 
+SrsDvrAppendPlan::SrsDvrAppendPlan()
+{
+    last_update_time = 0;
+}
+
+SrsDvrAppendPlan::~SrsDvrAppendPlan()
+{
+}
+
+int SrsDvrAppendPlan::on_publish()
+{
+    int ret = ERROR_SUCCESS;
+    
+    // support multiple publish.
+    if (dvr_enabled) {
+        return ret;
+    }
+
+    if (!_srs_config->get_dvr_enabled(req->vhost)) {
+        return ret;
+    }
+
+    if ((ret = segment->open(false)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    dvr_enabled = true;
+
+    return ret;
+}
+
+void SrsDvrAppendPlan::on_unpublish()
+{
+}
+
+int SrsDvrAppendPlan::on_audio(SrsSharedPtrMessage* shared_audio)
+{
+    int ret = ERROR_SUCCESS;
+
+    if ((ret = update_duration(shared_audio)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    if ((ret = SrsDvrPlan::on_audio(shared_audio)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    return ret;
+}
+
+int SrsDvrAppendPlan::on_video(SrsSharedPtrMessage* shared_video)
+{
+    int ret = ERROR_SUCCESS;
+
+    if ((ret = update_duration(shared_video)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    if ((ret = SrsDvrPlan::on_video(shared_video)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    return ret;
+}
+
+int SrsDvrAppendPlan::update_duration(SrsSharedPtrMessage* msg)
+{
+    int ret = ERROR_SUCCESS;
+
+    if (last_update_time <= 0) {
+        last_update_time = msg->timestamp;
+        return ret;
+    }
+
+    if (msg->timestamp < last_update_time) {
+        last_update_time = msg->timestamp;
+        return ret;
+    }
+
+    if (SRS_DVR_UPDATE_DURATION_INTERVAL > msg->timestamp - last_update_time) {
+        return ret;
+    }
+    last_update_time = msg->timestamp;
+    
+    srs_assert(segment);
+    if (!segment->update_flv_metadata()) {
+        return ret;
+    }
+
+    return ret;
+}
+
 SrsDvrSegmentPlan::SrsDvrSegmentPlan()
 {
     segment_duration = -1;
+    metadata = sh_video = sh_audio = NULL;
 }
 
 SrsDvrSegmentPlan::~SrsDvrSegmentPlan()
 {
+    srs_freep(sh_video);
+    srs_freep(sh_audio);
+    srs_freep(metadata);
 }
 
-int SrsDvrSegmentPlan::initialize(SrsSource* source, SrsRequest* req)
+int SrsDvrSegmentPlan::initialize(SrsRequest* req)
 {
     int ret = ERROR_SUCCESS;
     
-    if ((ret = SrsDvrPlan::initialize(source, req)) != ERROR_SUCCESS) {
+    if ((ret = SrsDvrPlan::initialize(req)) != ERROR_SUCCESS) {
         return ret;
     }
     
@@ -699,256 +836,141 @@ int SrsDvrSegmentPlan::on_publish()
 {
     int ret = ERROR_SUCCESS;
     
-    // if already opened, continue to dvr.
-    // the segment plan maybe keep running longer than the encoder.
-    // for example, segment running, encoder restart,
-    // the segment plan will just continue going and donot open new segment.
-    if (fs->is_open()) {
-        dvr_enabled = true;
+    // support multiple publish.
+    if (dvr_enabled) {
         return ret;
     }
-    
-    return SrsDvrPlan::on_publish();
+
+    if (!_srs_config->get_dvr_enabled(req->vhost)) {
+        return ret;
+    }
+
+    if ((ret = segment->close()) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    if ((ret = segment->open()) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    dvr_enabled = true;
+
+    return ret;
 }
 
 void SrsDvrSegmentPlan::on_unpublish()
 {
-    // support multiple publish.
-    if (!dvr_enabled) {
-        return;
+}
+
+int SrsDvrSegmentPlan::on_meta_data(SrsSharedPtrMessage* shared_metadata)
+{
+    int ret = ERROR_SUCCESS;
+    
+    srs_freep(metadata);
+    metadata = shared_metadata->copy();
+    
+    if ((ret = SrsDvrPlan::on_meta_data(shared_metadata)) != ERROR_SUCCESS) {
+        return ret;
     }
-    dvr_enabled = false;
+
+    return ret;
+}
+
+int SrsDvrSegmentPlan::on_audio(SrsSharedPtrMessage* shared_audio)
+{
+    int ret = ERROR_SUCCESS;
+    
+    if (SrsFlvCodec::audio_is_sequence_header(shared_audio->payload, shared_audio->size)) {
+        srs_freep(sh_audio);
+        sh_audio = shared_audio->copy();
+    }
+
+    if ((ret = update_duration(shared_audio)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    if ((ret = SrsDvrPlan::on_audio(shared_audio)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    return ret;
+}
+
+int SrsDvrSegmentPlan::on_video(SrsSharedPtrMessage* shared_video)
+{
+    int ret = ERROR_SUCCESS;
+
+    if (SrsFlvCodec::video_is_sequence_header(shared_video->payload, shared_video->size)) {
+        srs_freep(sh_video);
+        sh_video = shared_video->copy();
+    }
+
+    if ((ret = update_duration(shared_video)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    if ((ret = SrsDvrPlan::on_video(shared_video)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    return ret;
 }
 
 int SrsDvrSegmentPlan::update_duration(SrsSharedPtrMessage* msg)
 {
     int ret = ERROR_SUCCESS;
     
-    if ((ret = SrsDvrPlan::update_duration(msg)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
     srs_assert(segment);
     
-    // reap if exceed duration.
-    if (segment_duration > 0 && segment->duration > segment_duration) {
-        if ((ret = flv_close()) != ERROR_SUCCESS) {
-            segment->reset();
+    // ignore if duration ok.
+    if (segment_duration <= 0 || !segment->is_overflow(segment_duration)) {
+        return ret;
+    }
+    
+    // when wait keyframe, ignore if no frame arrived.
+    // @see https://github.com/simple-rtmp-server/srs/issues/177
+    if (_srs_config->get_dvr_wait_keyframe(req->vhost)) {
+        if (!msg->is_video()) {
             return ret;
         }
-        on_unpublish();
         
-        if ((ret = open_new_segment()) != ERROR_SUCCESS) {
-            return ret;
-        }
-    }
-    
-    return ret;
-}
-
-SrsDvrHssPlan::SrsDvrHssPlan()
-{
-    segment_duration = -1;
-    expect_reap_time = 0;
-}
-
-SrsDvrHssPlan::~SrsDvrHssPlan()
-{
-}
-
-int SrsDvrHssPlan::initialize(SrsSource* source, SrsRequest* req)
-{
-    int ret = ERROR_SUCCESS;
-    
-    if ((ret = SrsDvrPlan::initialize(source, req)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    // TODO: FIXME: support reload
-    segment_duration = _srs_config->get_dvr_duration(req->vhost);
-    // to ms
-    segment_duration *= 1000;
-    
-    return ret;
-}
-
-int SrsDvrHssPlan::on_publish()
-{
-    int ret = ERROR_SUCCESS;
-    
-    // if already opened, continue to dvr.
-    // the segment plan maybe keep running longer than the encoder.
-    // for example, segment running, encoder restart,
-    // the segment plan will just continue going and donot open new segment.
-    if (fs->is_open()) {
-        dvr_enabled = true;
-        return ret;
-    }
-    
-    if ((ret = SrsDvrPlan::on_publish()) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    // expect reap flv time
-    expect_reap_time = segment->stream_starttime + segment_duration;
-    
-    return ret;
-}
-
-void SrsDvrHssPlan::on_unpublish()
-{
-    // support multiple publish.
-    if (!dvr_enabled) {
-        return;
-    }
-    dvr_enabled = false;
-}
-
-int SrsDvrHssPlan::on_meta_data(SrsOnMetaDataPacket* metadata)
-{
-    int ret = ERROR_SUCCESS;
-    
-    SrsRequest* req = _req;
-    
-    // new flv file
-    std::stringstream path;
-    path << _srs_config->get_dvr_path(req->vhost)
-        << "/" << req->app << "/" 
-        << req->stream << ".header.flv";
-        
-    SrsFileStream fs;
-    if ((ret = fs.open(path.str().c_str())) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    SrsFlvEncoder enc;
-    if ((ret = enc.initialize(&fs)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    if ((ret = enc.write_header()) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    int size = 0;
-    char* payload = NULL;
-    if ((ret = metadata->encode(size, payload)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    SrsAutoFree(char, payload, true);
-    
-    if ((ret = enc.write_metadata(payload, size)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-#ifdef SRS_AUTO_HTTP_CALLBACK
-    if ((ret = on_dvr_hss_reap_flv_header(path.str())) != ERROR_SUCCESS) {
-        return ret;
-    }
-#endif
-    
-    return ret;
-}
-
-int SrsDvrHssPlan::write_flv_header()
-{
-    int ret = ERROR_SUCCESS;
-    return ret;
-}
-
-int SrsDvrHssPlan::on_dvr_request_sh()
-{
-    int ret = ERROR_SUCCESS;
-    return ret;
-}
-
-int SrsDvrHssPlan::on_video_keyframe()
-{
-    int ret = ERROR_SUCCESS;
-    
-    segment->sequence_header_offset = fs->tellg();
-    if ((ret = SrsDvrPlan::on_dvr_request_sh()) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    return ret;
-}
-
-int64_t SrsDvrHssPlan::filter_timestamp(int64_t timestamp)
-{
-    //return timestamp;
-    srs_assert(segment);
-    srs_verbose("filter timestamp from %"PRId64" to %"PRId64, timestamp, segment->stream_starttime + timestamp);
-    return segment->stream_starttime + timestamp;
-}
-
-int SrsDvrHssPlan::on_dvr_hss_reap_flv_header(string path)
-{
-    int ret = ERROR_SUCCESS;
-    
-#ifdef SRS_AUTO_HTTP_CALLBACK
-    // HTTP: on_dvr_hss_reap_flv_header 
-    SrsConfDirective* on_dvr_hss_reap_flv = _srs_config->get_vhost_on_dvr_hss_reap_flv(_req->vhost);
-    if (!on_dvr_hss_reap_flv) {
-        srs_info("ignore the empty http callback: on_dvr_hss_reap_flv");
-        return ret;
-    }
-    
-    for (int i = 0; i < (int)on_dvr_hss_reap_flv->args.size(); i++) {
-        std::string url = on_dvr_hss_reap_flv->args.at(i);
-        SrsHttpHooks::on_dvr_hss_reap_flv_header(url, _req, path);
-    }
-#endif
-    
-    return ret;
-}
-
-int SrsDvrHssPlan::update_duration(SrsSharedPtrMessage* msg)
-{
-    int ret = ERROR_SUCCESS;
-    
-    if ((ret = SrsDvrPlan::update_duration(msg)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    srs_assert(segment);
-    
-    // if not initialized, ignore reap.
-    if (expect_reap_time <= 0 
-        || segment->stream_starttime <= 0 
-        || segment->stream_duration <= 0
-    ) {
-        return ret;
-    }
-    
-    // reap if exceed atc expect time.
-    if (segment->stream_starttime + segment->stream_duration > expect_reap_time) {
-        srs_verbose("hss reap start=%"PRId64", duration=%"PRId64", expect=%"PRId64
-            ", segment(start=%"PRId64", duration=%"PRId64", file=%s", 
-            segment->stream_starttime, segment->stream_duration, expect_reap_time,
-            segment->stream_starttime + segment->starttime, 
-            segment->duration, segment->path.c_str());
-            
-        // update expect reap time
-        expect_reap_time += segment_duration;
-        
-        if ((ret = flv_close()) != ERROR_SUCCESS) {
-            segment->reset();
-            return ret;
-        }
-        on_unpublish();
-        
-        if ((ret = open_new_segment()) != ERROR_SUCCESS) {
+        char* payload = msg->payload;
+        int size = msg->size;
+        bool is_key_frame = SrsFlvCodec::video_is_h264(payload, size) 
+            && SrsFlvCodec::video_is_keyframe(payload, size) 
+            && !SrsFlvCodec::video_is_sequence_header(payload, size);
+        if (!is_key_frame) {
             return ret;
         }
     }
     
+    // reap segment
+    if ((ret = segment->close()) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    // open new flv file
+    if ((ret = segment->open()) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
+    // update sequence header
+    if (metadata && (ret = SrsDvrPlan::on_meta_data(metadata)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    if (sh_video && (ret = SrsDvrPlan::on_video(sh_video)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    if (sh_audio && (ret = SrsDvrPlan::on_audio(sh_audio)) != ERROR_SUCCESS) {
+        return ret;
+    }
+    
     return ret;
 }
 
-SrsDvr::SrsDvr(SrsSource* source)
+SrsDvr::SrsDvr()
 {
-    _source = source;
+    source = NULL;
     plan = NULL;
 }
 
@@ -957,21 +979,27 @@ SrsDvr::~SrsDvr()
     srs_freep(plan);
 }
 
-int SrsDvr::initialize(SrsRequest* req)
+int SrsDvr::initialize(SrsSource* s, SrsRequest* r)
 {
     int ret = ERROR_SUCCESS;
+
+    source = s;
     
     srs_freep(plan);
-    plan = SrsDvrPlan::create_plan(req->vhost);
+    plan = SrsDvrPlan::create_plan(r->vhost);
 
-    if ((ret = plan->initialize(_source, req)) != ERROR_SUCCESS) {
+    if ((ret = plan->initialize(r)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    if ((ret = source->on_dvr_request_sh()) != ERROR_SUCCESS) {
         return ret;
     }
     
     return ret;
 }
 
-int SrsDvr::on_publish(SrsRequest* /*req*/)
+int SrsDvr::on_publish(SrsRequest* /*r*/)
 {
     int ret = ERROR_SUCCESS;
     
@@ -987,42 +1015,39 @@ void SrsDvr::on_unpublish()
     plan->on_unpublish();
 }
 
-int SrsDvr::on_meta_data(SrsOnMetaDataPacket* metadata)
+// TODO: FIXME: source should use shared message instead.
+int SrsDvr::on_meta_data(SrsOnMetaDataPacket* m)
 {
     int ret = ERROR_SUCCESS;
-    
-    if ((ret = plan->on_meta_data(metadata)) != ERROR_SUCCESS) {
+
+    int size = 0;
+    char* payload = NULL;
+    if ((ret = m->encode(size, payload)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    SrsSharedPtrMessage metadata;
+    if ((ret = metadata.create(NULL, payload, size)) != ERROR_SUCCESS) {
+        return ret;
+    }
+
+    if ((ret = plan->on_meta_data(&metadata)) != ERROR_SUCCESS) {
         return ret;
     }
     
     return ret;
 }
 
-int SrsDvr::on_audio(SrsSharedPtrMessage* audio)
+int SrsDvr::on_audio(SrsSharedPtrMessage* shared_audio)
 {
-    int ret = ERROR_SUCCESS;
-    
-    SrsAutoFree(SrsSharedPtrMessage, audio, false);
-    
-    if ((ret = plan->on_audio(audio)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    return ret;
+    return plan->on_audio(shared_audio);
 }
 
-int SrsDvr::on_video(SrsSharedPtrMessage* video)
+int SrsDvr::on_video(SrsSharedPtrMessage* shared_video)
 {
-    int ret = ERROR_SUCCESS;
-    
-    SrsAutoFree(SrsSharedPtrMessage, video, false);
-    
-    if ((ret = plan->on_video(video)) != ERROR_SUCCESS) {
-        return ret;
-    }
-    
-    return ret;
+    return plan->on_video(shared_video);
 }
 
 #endif
+
 

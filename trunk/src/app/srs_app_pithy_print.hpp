@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -30,27 +30,50 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <srs_core.hpp>
 
-// the pithy stage for all play clients.
-#define SRS_STAGE_PLAY_USER 1
-// the pithy stage for all publish clients.
-#define SRS_STAGE_PUBLISH_USER 2
-// the pithy stage for all forward clients.
-#define SRS_STAGE_FORWARDER 3
-// the pithy stage for all encoders.
-#define SRS_STAGE_ENCODER 4
-// the pithy stage for all hls.
-#define SRS_STAGE_HLS 5
-// the pithy stage for all ingesters.
-#define SRS_STAGE_INGESTER 6
-// the pithy stage for all edge.
-#define SRS_STAGE_EDGE 7
+#include <srs_app_reload.hpp>
 
 /**
-* the stage is used for a collection of object to do print,
-* the print time in a stage is constant and not changed.
-* for example, stage #1 for all play clients, print time is 3s,
-* if there is 10clients, then all clients should print in 10*3s.
+* the stage info to calc the age.
 */
+class SrsStageInfo : public ISrsReloadHandler
+{
+public:
+    int stage_id;
+    int pithy_print_time_ms;
+    int nb_clients;
+public:
+    int64_t age;
+public:
+    SrsStageInfo(int _stage_id);
+    virtual ~SrsStageInfo();
+    virtual void update_print_time();
+public:
+    virtual void elapse(int64_t diff);
+    virtual bool can_print();
+public:
+    virtual int on_reload_pithy_print();
+};
+
+/**
+ * the stage is used for a collection of object to do print,
+ * the print time in a stage is constant and not changed,
+ * that is, we always got one message to print every specified time.
+ *
+ * for example, stage #1 for all play clients, print time is 3s,
+ * if there is 1client, it will print every 3s.
+ * if there is 10clients, random select one to print every 3s.
+ * Usage:
+         SrsPithyPrint* pprint = SrsPithyPrint::create_rtmp_play();
+         SrsAutoFree(SrsPithyPrint, pprint);
+         while (true) {
+             pprint->elapse();
+             if (pprint->can_print()) {
+                 // print pithy message.
+                 // user can get the elapse time by: pprint->age()
+             }
+             // read and write RTMP messages.
+         }
+ */
 class SrsPithyPrint
 {
 private:
@@ -58,13 +81,20 @@ private:
     int stage_id;
     // in ms.
     int64_t _age;
-    int64_t printed_age;
     int64_t previous_tick;
-public:
-    /**
-    * @param _stage_id defined in SRS_STAGE_xxx, eg. SRS_STAGE_PLAY_USER.
-    */
+private:
     SrsPithyPrint(int _stage_id);
+public:
+    static SrsPithyPrint* create_rtmp_play();
+    static SrsPithyPrint* create_rtmp_publish();
+    static SrsPithyPrint* create_hls();
+    static SrsPithyPrint* create_forwarder();
+    static SrsPithyPrint* create_encoder();
+    static SrsPithyPrint* create_ingester();
+    static SrsPithyPrint* create_edge();
+    static SrsPithyPrint* create_caster();
+    static SrsPithyPrint* create_http_stream();
+    static SrsPithyPrint* create_http_stream_cache();
     virtual ~SrsPithyPrint();
 private:
     /**

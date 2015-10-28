@@ -3,7 +3,7 @@
 ff_src_dir="../../3rdparty"
 
 # the jobs to make ffmpeg
-if [[ "" -eq SRS_JOBS ]]; then 
+if [[ "" == $SRS_JOBS ]]; then 
     export SRS_JOBS="--jobs=1" 
 fi
 
@@ -35,16 +35,15 @@ fi
 # ffmpeg can specifies the yasm path when configure it.
 export PATH=${PATH}:${ff_release_dir}/bin
 
-# libaacplus
-if [[ -f ${ff_release_dir}/lib/libaacplus.a ]]; then
-    echo "libaacplus is ok"
+# libfdk-aac
+if [[ -f ${ff_release_dir}/lib/libfdk-aac.a ]]; then
+    echo "libfdk_aac is ok"
 else
-    echo "build yasm-1.2.0"
+    echo "build fdk-aac-0.1.3"
     cd $ff_current_dir &&
-    rm -rf libaacplus-2.0.2 && unzip -q ${ff_src_dir}/libaacplus-2.0.2.zip &&
-    cd libaacplus-2.0.2 && cp ../${ff_src_dir}/libaacplus-patch-26410-800.zip src/26410-800.zip &&
-    bash autogen.sh && ./configure --prefix=${ff_release_dir} --enable-static && make && make install
-    ret=$?; if [[ 0 -ne ${ret} ]]; then echo "build libaacplus-2.0.2 failed"; exit 1; fi
+    rm -rf fdk-aac-0.1.3 && unzip -q ${ff_src_dir}/fdk-aac-0.1.3.zip &&
+    cd fdk-aac-0.1.3 && bash autogen.sh && ./configure --prefix=${ff_release_dir} --enable-static && make ${SRS_JOBS} && make install &&
+    ret=$?; if [[ 0 -ne ${ret} ]]; then echo "build fdk-aac-0.1.3 failed"; exit 1; fi
 fi
 
 # lame-3.99
@@ -77,6 +76,7 @@ else
     cd $ff_current_dir &&
     rm -rf x264-snapshot-20131129-2245-stable && unzip -q ${ff_src_dir}/x264-snapshot-20131129-2245-stable.zip &&
     cd x264-snapshot-20131129-2245-stable && 
+    chmod +w configure && patch -p0 <../../../3rdparty/patches/5.x264.osx.gcc.patch &&
     ./configure --prefix=${ff_release_dir} --disable-opencl --bit-depth=8 \
         --enable-static --disable-avs  --disable-swscale  --disable-lavf \
         --disable-ffms  --disable-gpac && 
@@ -105,8 +105,7 @@ else
         --extra-ldflags='-L${ffmpeg_exported_release_dir}/lib -lm -ldl' \
         --disable-ffplay --disable-ffprobe --disable-ffserver --disable-doc \
         --enable-postproc --enable-bzlib --enable-zlib --enable-parsers \
-        --enable-libfreetype \
-        --enable-libx264 --enable-libmp3lame --enable-libaacplus --enable-libspeex \
+        --enable-libx264 --enable-libmp3lame --enable-libfdk-aac --enable-libspeex \
         --enable-pthreads --extra-libs=-lpthread \
         --enable-encoders --enable-decoders --enable-avfilter --enable-muxers --enable-demuxers && 
     make ${SRS_JOBS} && make install

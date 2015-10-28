@@ -4,11 +4,11 @@
 #######################################
 # color echo.
 #######################################
-RED="\\e[31m"
-GREEN="\\e[32m"
-YELLOW="\\e[33m"
-BLACK="\\e[0m"
-POS="\\e[110G"
+RED="\\033[31m"
+GREEN="\\033[32m"
+YELLOW="\\033[33m"
+BLACK="\\033[0m"
+POS="\\033[103G"
 
 # if need to log to file, change the log path.
 if [[ ! $log ]]; then
@@ -38,7 +38,7 @@ failed_msg(){
 
 function check_log(){
     log_dir="`dirname $log`"
-    (mkdir -p ${log_dir} && sudo chmod 777 ${log_dir} && touch $log)
+    (mkdir -p ${log_dir} && chmod 777 ${log_dir} && touch $log)
     ret=$?; if [[ $ret -ne 0 ]]; then failed_msg "create log failed, ret=$ret"; return $ret; fi
     ok_msg "create log( ${log} ) success"
     

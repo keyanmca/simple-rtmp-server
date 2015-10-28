@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -31,41 +31,39 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <srs_core.hpp>
 
 /**
-* auto free the instance in the current scope.
+* auto free the instance in the current scope, for instance, MyClass* ptr,
+* which is a ptr and this class will:
+*       1. free the ptr.
+*       2. set ptr to NULL.
+* Usage:
+*       MyClass* po = new MyClass();
+*       // ...... use po
+*       SrsAutoFree(MyClass, po);
 */
-#define SrsAutoFree(className, instance, is_array) \
-    __SrsAutoFree<className> _auto_free_##instance((className**)&instance, is_array)
-    
+#define SrsAutoFree(className, instance) \
+    impl__SrsAutoFree<className> _auto_free_##instance(&instance)
 template<class T>
-class __SrsAutoFree
+class impl__SrsAutoFree
 {
 private:
     T** ptr;
-    bool is_array;
 public:
     /**
     * auto delete the ptr.
-    * @is_array a bool value indicates whether the ptr is a array.
     */
-    __SrsAutoFree(T** _ptr, bool _is_array){
-        ptr = _ptr;
-        is_array = _is_array;
+    impl__SrsAutoFree(T** p) {
+        ptr = p;
     }
     
-    virtual ~__SrsAutoFree(){
+    virtual ~impl__SrsAutoFree() {
         if (ptr == NULL || *ptr == NULL) {
             return;
         }
         
-        if (is_array) {
-            delete[] *ptr;
-        } else {
-            delete *ptr;
-        }
+        delete *ptr;
         
         *ptr = NULL;
     }
 };
-
 
 #endif

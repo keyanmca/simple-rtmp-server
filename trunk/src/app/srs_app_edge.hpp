@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -33,14 +33,16 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <srs_app_st.hpp>
 #include <srs_app_thread.hpp>
 
-class SrsSocket;
+#include <string>
+
+class SrsStSocket;
 class SrsRtmpServer;
 class SrsSource;
 class SrsRequest;
 class SrsPlayEdge;
 class SrsPublishEdge;
 class SrsRtmpClient;
-class SrsMessage;
+class SrsCommonMessage;
 class SrsMessageQueue;
 class ISrsProtocolReaderWriter;
 class SrsKbps;
@@ -55,7 +57,7 @@ enum SrsEdgeState
     // for play edge
     SrsEdgeStatePlay = 100,
     // play stream from origin, ingest stream
-    SrsEdgeStateIngestConnected,
+    SrsEdgeStateIngestConnected = 101,
     
     // for publish edge
     SrsEdgeStatePublish = 200,
@@ -73,7 +75,7 @@ enum SrsEdgeUserState
 /**
 * edge used to ingest stream from origin.
 */
-class SrsEdgeIngester : public ISrsThreadHandler
+class SrsEdgeIngester : public ISrsReusableThread2Handler
 {
 private:
     int stream_id;
@@ -81,7 +83,7 @@ private:
     SrsSource* _source;
     SrsPlayEdge* _edge;
     SrsRequest* _req;
-    SrsThread* pthread;
+    SrsReusableThread2* pthread;
     st_netfd_t stfd;
     ISrsProtocolReaderWriter* io;
     SrsKbps* kbps;
@@ -94,20 +96,21 @@ public:
     virtual int initialize(SrsSource* source, SrsPlayEdge* edge, SrsRequest* req);
     virtual int start();
     virtual void stop();
-// interface ISrsThreadHandler
+// interface ISrsReusableThread2Handler
 public:
     virtual int cycle();
 private:
     virtual int ingest();
     virtual void close_underlayer_socket();
-    virtual int connect_server();
-    virtual int process_publish_message(SrsMessage* msg);
+    virtual int connect_server(std::string& ep_server, std::string& ep_port);
+    virtual int connect_app(std::string ep_server, std::string ep_port);
+    virtual int process_publish_message(SrsCommonMessage* msg);
 };
 
 /**
 * edge used to forward stream to origin.
 */
-class SrsEdgeForwarder : public ISrsThreadHandler
+class SrsEdgeForwarder : public ISrsReusableThread2Handler
 {
 private:
     int stream_id;
@@ -115,7 +118,7 @@ private:
     SrsSource* _source;
     SrsPublishEdge* _edge;
     SrsRequest* _req;
-    SrsThread* pthread;
+    SrsReusableThread2* pthread;
     st_netfd_t stfd;
     ISrsProtocolReaderWriter* io;
     SrsKbps* kbps;
@@ -141,14 +144,15 @@ public:
     virtual int initialize(SrsSource* source, SrsPublishEdge* edge, SrsRequest* req);
     virtual int start();
     virtual void stop();
-// interface ISrsThreadHandler
+// interface ISrsReusableThread2Handler
 public:
     virtual int cycle();
 public:
-    virtual int proxy(SrsMessage* msg);
+    virtual int proxy(SrsCommonMessage* msg);
 private:
     virtual void close_underlayer_socket();
-    virtual int connect_server();
+    virtual int connect_server(std::string& ep_server, std::string& ep_port);
+    virtual int connect_app(std::string ep_server, std::string ep_port);
 };
 
 /**
@@ -159,12 +163,16 @@ class SrsPlayEdge
 {
 private:
     SrsEdgeState state;
-    SrsEdgeUserState user_state;
     SrsEdgeIngester* ingester;
 public:
     SrsPlayEdge();
     virtual ~SrsPlayEdge();
 public:
+    /**
+    * always use the req of source,
+    * for we assume all client to edge is invalid,
+    * if auth open, edge must valid it from origin, then service it.
+    */
     virtual int initialize(SrsSource* source, SrsRequest* req);
     /**
     * when client play stream on edge.
@@ -189,7 +197,6 @@ class SrsPublishEdge
 {
 private:
     SrsEdgeState state;
-    SrsEdgeUserState user_state;
     SrsEdgeForwarder* forwarder;
 public:
     SrsPublishEdge();
@@ -198,6 +205,7 @@ public:
     virtual void set_queue_size(double queue_size);
 public:
     virtual int initialize(SrsSource* source, SrsRequest* req);
+    virtual bool can_publish();
     /**
     * when client publish stream on edge.
     */
@@ -205,7 +213,7 @@ public:
     /**
     * proxy publish stream to edge
     */
-    virtual int on_proxy_publish(SrsMessage* msg);
+    virtual int on_proxy_publish(SrsCommonMessage* msg);
     /**
     * proxy unpublish stream to edge.
     */
@@ -213,3 +221,4 @@ public:
 };
 
 #endif
+

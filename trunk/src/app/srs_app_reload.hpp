@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -36,7 +36,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 * when reload callback, the config is updated yet.
 * 
 * features not support reload, 
-* @see: https://github.com/winlinvip/simple-rtmp-server/wiki/Reload#notsupportedfeatures
+* @see: https://github.com/simple-rtmp-server/srs/wiki/v1_CN_Reload#notsupportedfeatures
 */
 class ISrsReloadHandler
 {
@@ -44,6 +44,8 @@ public:
     ISrsReloadHandler();
     virtual ~ISrsReloadHandler();
 public:
+    virtual int on_reload_utc_time();
+    virtual int on_reload_max_conns();
     virtual int on_reload_listen();
     virtual int on_reload_pid();
     virtual int on_reload_log_tank();
@@ -55,19 +57,34 @@ public:
     virtual int on_reload_http_stream_enabled();
     virtual int on_reload_http_stream_disabled();
     virtual int on_reload_http_stream_updated();
+public:
+    // TODO: FIXME: should rename to http_static
     virtual int on_reload_vhost_http_updated();
+    virtual int on_reload_vhost_http_remux_updated(std::string vhost);
     virtual int on_reload_vhost_added(std::string vhost);
     virtual int on_reload_vhost_removed(std::string vhost);
     virtual int on_reload_vhost_atc(std::string vhost);
     virtual int on_reload_vhost_gop_cache(std::string vhost);
     virtual int on_reload_vhost_queue_length(std::string vhost);
+    virtual int on_reload_vhost_time_jitter(std::string vhost);
+    virtual int on_reload_vhost_mix_correct(std::string vhost);
     virtual int on_reload_vhost_forward(std::string vhost);
     virtual int on_reload_vhost_hls(std::string vhost);
+    virtual int on_reload_vhost_hds(std::string vhost);
     virtual int on_reload_vhost_dvr(std::string vhost);
+    virtual int on_reload_vhost_mr(std::string vhost);
+    virtual int on_reload_vhost_mw(std::string vhost);
+    virtual int on_reload_vhost_smi(std::string vhost);
+    virtual int on_reload_vhost_tcp_nodelay(std::string vhost);
+    virtual int on_reload_vhost_realtime(std::string vhost);
+    virtual int on_reload_vhost_p1stpt(std::string vhost);
+    virtual int on_reload_vhost_pnt(std::string vhost);
+    virtual int on_reload_vhost_chunk_size(std::string vhost);
     virtual int on_reload_vhost_transcode(std::string vhost);
     virtual int on_reload_ingest_removed(std::string vhost, std::string ingest_id);
     virtual int on_reload_ingest_added(std::string vhost, std::string ingest_id);
     virtual int on_reload_ingest_updated(std::string vhost, std::string ingest_id);
+    virtual int on_reload_user_info();
 };
 
 #endif

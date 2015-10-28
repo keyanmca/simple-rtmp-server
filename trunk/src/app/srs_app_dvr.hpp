@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -29,6 +29,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 #include <srs_core.hpp>
 
+#include <string>
+#include <sstream>
+
 #ifdef SRS_AUTO_DVR
 
 class SrsSource;
@@ -37,86 +40,50 @@ class SrsStream;
 class SrsRtmpJitter;
 class SrsOnMetaDataPacket;
 class SrsSharedPtrMessage;
+class SrsFileWriter;
+class SrsFlvEncoder;
+class SrsDvrPlan;
+class SrsJsonAny;
+class SrsJsonObject;
+class SrsThread;
 
-/**
-* file stream to read/write file.
-*/
-class SrsFileStream
-{
-private:
-    std::string _file;
-    int fd;
-public:
-    SrsFileStream();
-    virtual ~SrsFileStream();
-public:
-    virtual int open(std::string file);
-    virtual int close();
-    virtual bool is_open();
-public:
-    /**
-    * @param pnread, return the read size. NULL to ignore.
-    */
-    virtual int read(void* buf, size_t count, ssize_t* pnread);
-    /**
-    * @param pnwrite, return the write size. NULL to ignore.
-    */
-    virtual int write(void* buf, size_t count, ssize_t* pnwrite);
-    /**
-    * tell current offset of stream.
-    */
-    virtual int64_t tellg();
-};
-
-/**
-* encode data to flv file.
-*/
-class SrsFlvEncoder
-{
-private:
-    SrsFileStream* _fs;
-private:
-    SrsStream* tag_stream;
-public:
-    SrsFlvEncoder();
-    virtual ~SrsFlvEncoder();
-public:
-    /**
-    * initialize the underlayer file stream,
-    * user can initialize multiple times to encode multiple flv files.
-    */
-    virtual int initialize(SrsFileStream* fs);
-public:
-    /**
-    * write flv header.
-    * write following:
-    *   1. E.2 The FLV header
-    *   2. PreviousTagSize0 UI32 Always 0
-    * that is, 9+4=13bytes.
-    */
-    virtual int write_header();
-    /**
-    * write flv metadata. 
-    * serialize from:
-    *   AMF0 string: onMetaData,
-    *   AMF0 object: the metadata object.
-    */
-    virtual int write_metadata(char* data, int size);
-    /**
-    * write audio/video packet.
-    */
-    virtual int write_audio(int64_t timestamp, char* data, int size);
-    virtual int write_video(int64_t timestamp, char* data, int size);
-private:
-    virtual int write_tag(char* header, int header_size, char* tag, int tag_size);
-};
+#include <srs_app_source.hpp>
+#include <srs_app_reload.hpp>
+#include <srs_app_async_call.hpp>
 
 /**
 * a piece of flv segment.
+* when open segment, support start at 0 or not.
 */
-class SrsFlvSegment
+class SrsFlvSegment : public ISrsReloadHandler
 {
-public:
+private:
+    SrsRequest* req;
+    SrsDvrPlan* plan;
+private:
+    /**
+    * the underlayer dvr stream.
+    * if close, the flv is reap and closed.
+    * if open, new flv file is crote.
+    */
+    SrsFlvEncoder* enc;
+    SrsRtmpJitter* jitter;
+    SrsRtmpJitterAlgorithm jitter_algorithm;
+    SrsFileWriter* fs;
+private:
+    /**
+    * the offset of file for duration value.
+    * the next 8 bytes is the double value.
+    */
+    int64_t duration_offset;
+    /**
+    * the offset of file for filesize value.
+    * the next 8 bytes is the double value.
+    */
+    int64_t filesize_offset;
+private:
+    std::string tmp_flv_file;
+private:
     /**
     * current segment flv file path.
     */
@@ -125,10 +92,6 @@ public:
     * whether current segment has keyframe.
     */
     bool has_keyframe;
-    /**
-    * sequence header offset in file.
-    */
-    int64_t sequence_header_offset;
     /**
     * current segment starttime, RTMP pkt time.
     */
@@ -151,8 +114,82 @@ public:
     */
     int64_t stream_previous_pkt_time;
 public:
-    SrsFlvSegment();
-    virtual void reset();
+    SrsFlvSegment(SrsDvrPlan* p);
+    virtual ~SrsFlvSegment();
+public:
+    /**
+    * initialize the segment.
+    */
+    virtual int initialize(SrsRequest* r);
+    /**
+    * whether segment is overflow.
+    */
+    virtual bool is_overflow(int64_t max_duration);
+    /**
+    * open new segment file, timestamp start at 0 for fresh flv file.
+    * @remark ignore when already open.
+    * @param use_tmp_file whether use tmp file if possible.
+    */
+    virtual int open(bool use_tmp_file = true);
+    /**
+    * close current segment.
+    * @remark ignore when already closed.
+    */
+    virtual int close();
+    /**
+    * write the metadata to segment.
+    */
+    virtual int write_metadata(SrsSharedPtrMessage* metadata);
+    /**
+    * @param shared_audio, directly ptr, copy it if need to save it.
+    */
+    virtual int write_audio(SrsSharedPtrMessage* shared_audio);
+    /**
+    * @param shared_video, directly ptr, copy it if need to save it.
+    */
+    virtual int write_video(SrsSharedPtrMessage* shared_video);
+    /**
+    * update the flv metadata.
+    */
+    virtual int update_flv_metadata();
+    /**
+    * get the current dvr path.
+    */
+    virtual std::string get_path();
+private:
+    /**
+    * generate the flv segment path.
+    */
+    virtual std::string generate_path();
+    /**
+    * create flv jitter. load jitter when flv exists.
+    * @param loads_from_flv whether loads the jitter from exists flv file.
+    */
+    virtual int create_jitter(bool loads_from_flv);
+    /**
+    * when update the duration of segment by rtmp msg.
+    */
+    virtual int on_update_duration(SrsSharedPtrMessage* msg);
+// interface ISrsReloadHandler
+public:
+    virtual int on_reload_vhost_dvr(std::string vhost);
+};
+
+/**
+* the dvr async call.
+*/
+class SrsDvrAsyncCallOnDvr : public ISrsAsyncCallTask
+{
+private:
+    int cid;
+    std::string path;
+    SrsRequest* req;
+public:
+    SrsDvrAsyncCallOnDvr(int c, SrsRequest* r, std::string p);
+    virtual ~SrsDvrAsyncCallOnDvr();
+public:
+    virtual int call();
+    virtual std::string to_string();
 };
 
 /**
@@ -164,43 +201,37 @@ public:
 // TODO: FIXME: the plan is too fat, refine me.
 class SrsDvrPlan
 {
+public:
+    friend class SrsFlvSegment;
+public:
+    SrsRequest* req;
 protected:
-    /**
-    * the underlayer dvr stream.
-    * if close, the flv is reap and closed.
-    * if open, new flv file is crote.
-    */
-    SrsFileStream* fs;
-    SrsFlvEncoder* enc;
-    bool dvr_enabled;
-    SrsSource* _source;
-    SrsRequest* _req;
-    SrsRtmpJitter* jitter;
     SrsFlvSegment* segment;
+    SrsAsyncCallWorker* async;
+    bool dvr_enabled;
 public:
     SrsDvrPlan();
     virtual ~SrsDvrPlan();
 public:
-    virtual int initialize(SrsSource* source, SrsRequest* req);
-    virtual int on_publish();
+    virtual int initialize(SrsRequest* r);
+    virtual int on_publish() = 0;
     virtual void on_unpublish() = 0;
-    virtual int on_meta_data(SrsOnMetaDataPacket* metadata);
-    virtual int on_audio(SrsSharedPtrMessage* audio);
-    virtual int on_video(SrsSharedPtrMessage* video);
+    /**
+    * when got metadata.
+    */
+    virtual int on_meta_data(SrsSharedPtrMessage* shared_metadata);
+    /**
+    * @param shared_audio, directly ptr, copy it if need to save it.
+    */
+    virtual int on_audio(SrsSharedPtrMessage* shared_audio);
+    /**
+    * @param shared_video, directly ptr, copy it if need to save it.
+    */
+    virtual int on_video(SrsSharedPtrMessage* shared_video);
 protected:
-    virtual int flv_open(std::string stream, std::string path);
-    virtual int flv_close();
-    virtual int open_new_segment();
-    virtual int update_duration(SrsSharedPtrMessage* msg);
-    virtual int write_flv_header();
-    virtual int on_dvr_request_sh();
+    virtual int on_reap_segment();
     virtual int on_video_keyframe();
     virtual int64_t filter_timestamp(int64_t timestamp);
-private:
-    /**
-    * when srs reap the flv(close the segment), notice the api.
-    */
-    virtual int on_dvr_hss_reap_flv();
 public:
     static SrsDvrPlan* create_plan(std::string vhost);
 };
@@ -214,7 +245,27 @@ public:
     SrsDvrSessionPlan();
     virtual ~SrsDvrSessionPlan();
 public:
+    virtual int on_publish();
     virtual void on_unpublish();
+};
+
+/**
+* always append to flv file, never reap it.
+*/
+class SrsDvrAppendPlan : public SrsDvrPlan
+{
+private:
+    int64_t last_update_time;
+public:
+    SrsDvrAppendPlan();
+    virtual ~SrsDvrAppendPlan();
+public:
+    virtual int on_publish();
+    virtual void on_unpublish();
+    virtual int on_audio(SrsSharedPtrMessage* shared_audio);
+    virtual int on_video(SrsSharedPtrMessage* shared_video);
+private:
+    virtual int update_duration(SrsSharedPtrMessage* msg);
 };
 
 /**
@@ -225,41 +276,20 @@ class SrsDvrSegmentPlan : public SrsDvrPlan
 private:
     // in config, in ms
     int segment_duration;
+    SrsSharedPtrMessage* sh_audio;
+    SrsSharedPtrMessage* sh_video;
+    SrsSharedPtrMessage* metadata;
 public:
     SrsDvrSegmentPlan();
     virtual ~SrsDvrSegmentPlan();
 public:
-    virtual int initialize(SrsSource* source, SrsRequest* req);
+    virtual int initialize(SrsRequest* req);
     virtual int on_publish();
     virtual void on_unpublish();
+    virtual int on_meta_data(SrsSharedPtrMessage* shared_metadata);
+    virtual int on_audio(SrsSharedPtrMessage* shared_audio);
+    virtual int on_video(SrsSharedPtrMessage* shared_video);
 private:
-    virtual int update_duration(SrsSharedPtrMessage* msg);
-};
-
-/**
-* hss plan: use atc time to reap flv segment
-*/
-class SrsDvrHssPlan : public SrsDvrPlan
-{
-private:
-    // in config, in ms
-    int segment_duration;
-    int64_t expect_reap_time;
-public:
-    SrsDvrHssPlan();
-    virtual ~SrsDvrHssPlan();
-public:
-    virtual int initialize(SrsSource* source, SrsRequest* req);
-    virtual int on_publish();
-    virtual void on_unpublish();
-    virtual int on_meta_data(SrsOnMetaDataPacket* metadata);
-protected:
-    virtual int write_flv_header();
-    virtual int on_dvr_request_sh();
-    virtual int on_video_keyframe();
-    virtual int64_t filter_timestamp(int64_t timestamp);
-private:
-    virtual int on_dvr_hss_reap_flv_header(std::string path);
     virtual int update_duration(SrsSharedPtrMessage* msg);
 };
 
@@ -270,11 +300,11 @@ private:
 class SrsDvr
 {
 private:
-    SrsSource* _source;
+    SrsSource* source;
 private:
     SrsDvrPlan* plan;
 public:
-    SrsDvr(SrsSource* source);
+    SrsDvr();
     virtual ~SrsDvr();
 public:
     /**
@@ -282,12 +312,12 @@ public:
     * when system initialize(encoder publish at first time, or reload),
     * initialize the dvr will reinitialize the plan, the whole dvr framework.
     */
-    virtual int initialize(SrsRequest* req);
+    virtual int initialize(SrsSource* s, SrsRequest* r);
     /**
     * publish stream event, 
     * when encoder start to publish RTMP stream.
     */
-    virtual int on_publish(SrsRequest* req);
+    virtual int on_publish(SrsRequest* r);
     /**
     * the unpublish event.,
     * when encoder stop(unpublish) to publish RTMP stream.
@@ -296,17 +326,20 @@ public:
     /**
     * get some information from metadata, it's optinal.
     */
-    virtual int on_meta_data(SrsOnMetaDataPacket* metadata);
+    virtual int on_meta_data(SrsOnMetaDataPacket* m);
     /**
     * mux the audio packets to dvr.
+    * @param shared_audio, directly ptr, copy it if need to save it.
     */
-    virtual int on_audio(SrsSharedPtrMessage* audio);
+    virtual int on_audio(SrsSharedPtrMessage* shared_audio);
     /**
     * mux the video packets to dvr.
+    * @param shared_video, directly ptr, copy it if need to save it.
     */
-    virtual int on_video(SrsSharedPtrMessage* video);
+    virtual int on_video(SrsSharedPtrMessage* shared_video);
 };
 
 #endif
 
 #endif
+

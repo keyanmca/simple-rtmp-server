@@ -1,7 +1,8 @@
 # generate the module info to Makefile
 #
 # params:
-#     $SRS_OBJS the objs directory. ie. objs
+#     $SRS_OBJS the objs directory to store the Makefile. ie. ./objs
+#     $SRS_OBJS_DIR the objs directory for Makefile. ie. objs
 #     $SRS_MAKEFILE the makefile name. ie. Makefile
 #
 #     $MODULE_DIR the module dir. ie. src/os/linux
@@ -9,6 +10,7 @@
 #     $MODULE_DEPENDS array, the denpend MODULEs id. ie. (CORE OS)
 #     $ModuleLibIncs array, the depend 3rdpart library includes. ie. (objs/st-1.9/obj objs/libx264/obj)
 #     $MODULE_FILES array, the head/cpp files of modules. ie. (public log)
+#     $DEFINES string, the build macro defines. ie. "-DMY_SRS"
 #     
 # returns:
 #     $MODULE_OBJS array, the objects of the modules, used for link the binary
@@ -73,17 +75,17 @@ echo "# OBJ for ${MODULE_ID}, each object file" >> ${FILE}
 MODULE_OBJS=()
 for item in ${MODULE_FILES[*]}; do
     CPP_FILE="${MODULE_DIR}/${item}.cpp"
-    OBJ_FILE="${SRS_OBJS}/${MODULE_DIR}/${item}.o"
+    OBJ_FILE="${SRS_OBJS_DIR}/${MODULE_DIR}/${item}.o"
     MODULE_OBJS="${MODULE_OBJS[@]} ${CPP_FILE}"
     if [ -f ${CPP_FILE} ]; then
         echo "${OBJ_FILE}: \$(${DEPS_NAME}) ${CPP_FILE} " >> ${FILE}
-        echo "	\$(CXX) -c \$(CXXFLAGS) \$(${INCS_NAME})\\" >> ${FILE}
+        echo "	\$(CXX) -c \$(CXXFLAGS) ${DEFINES} \$(${INCS_NAME})\\" >> ${FILE}
         echo "          -o ${OBJ_FILE} ${CPP_FILE}" >> ${FILE}
     fi
 done
 echo "" >> ${FILE}
 
 # parent Makefile, to create module output dir before compile it.
-echo "	mkdir -p ${SRS_OBJS}/${MODULE_DIR}" >> ${SRS_MAKEFILE}
+echo "	@mkdir -p ${SRS_OBJS_DIR}/${MODULE_DIR}" >> ${SRS_WORKDIR}/${SRS_MAKEFILE}
 
 echo -n "generate module ${MODULE_ID} ok"; echo '!';

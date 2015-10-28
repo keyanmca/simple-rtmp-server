@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -25,83 +25,46 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <srs_kernel_error.hpp>
 #include <srs_kernel_log.hpp>
+#include <srs_kernel_utility.hpp>
+#include <srs_core_performance.hpp>
 
-#define SOCKET_READ_SIZE 4096
-
-ISrsBufferReader::ISrsBufferReader()
+SrsSimpleBuffer::SrsSimpleBuffer()
 {
 }
 
-ISrsBufferReader::~ISrsBufferReader()
+SrsSimpleBuffer::~SrsSimpleBuffer()
 {
 }
 
-SrsBuffer::SrsBuffer()
+int SrsSimpleBuffer::length()
 {
+    int len = (int)data.size();
+    srs_assert(len >= 0);
+    return len;
 }
 
-SrsBuffer::~SrsBuffer()
+char* SrsSimpleBuffer::bytes()
 {
+    return (length() == 0)? NULL : &data.at(0);
 }
 
-int SrsBuffer::size()
+void SrsSimpleBuffer::erase(int size)
 {
-    return (int)data.size();
-}
-
-bool SrsBuffer::empty()
-{
-    return size() <= 0;
-}
-
-char* SrsBuffer::bytes()
-{
-    return &data.at(0);
-}
-
-void SrsBuffer::erase(int _size)
-{
-    if (_size == size()) {
-        clear();
+    if (size <= 0) {
         return;
     }
     
-    data.erase(data.begin(), data.begin() + _size);
-}
-
-void SrsBuffer::clear()
-{
-    data.clear();
-}
-
-void SrsBuffer::append(const char* bytes, int size)
-{
-    srs_assert(size > 0);
-    data.insert(data.end(), bytes, bytes + size);
-}
-
-int SrsBuffer::ensure_buffer_bytes(ISrsBufferReader* skt, int required_size)
-{
-    int ret = ERROR_SUCCESS;
-
-    if (required_size < 0) {
-        ret = ERROR_SYSTEM_SIZE_NEGATIVE;
-        srs_error("size is negative. size=%d, ret=%d", required_size, ret);
-        return ret;
-    }
-
-    while (size() < required_size) {
-        char buffer[SOCKET_READ_SIZE];
-        
-        ssize_t nread;
-        if ((ret = skt->read(buffer, SOCKET_READ_SIZE, &nread)) != ERROR_SUCCESS) {
-            return ret;
-        }
-        
-        srs_assert((int)nread > 0);
-        append(buffer, (int)nread);
+    if (size >= length()) {
+        data.clear();
+        return;
     }
     
-    return ret;
+    data.erase(data.begin(), data.begin() + size);
 }
 
+void SrsSimpleBuffer::append(const char* bytes, int size)
+{
+    srs_assert(size > 0);
+
+    data.insert(data.end(), bytes, bytes + size);
+}

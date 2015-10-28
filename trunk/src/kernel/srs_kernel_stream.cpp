@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -27,11 +27,12 @@ using namespace std;
 
 #include <srs_kernel_log.hpp>
 #include <srs_kernel_error.hpp>
+#include <srs_kernel_utility.hpp>
 
 SrsStream::SrsStream()
 {
     p = bytes = NULL;
-    size = 0;
+    nb_bytes = 0;
     
     // TODO: support both little and big endian.
     srs_assert(srs_is_little_endian());
@@ -41,61 +42,61 @@ SrsStream::~SrsStream()
 {
 }
 
-int SrsStream::initialize(char* _bytes, int _size)
+int SrsStream::initialize(char* b, int nb)
 {
     int ret = ERROR_SUCCESS;
     
-    if (!_bytes) {
-        ret = ERROR_SYSTEM_STREAM_INIT;
+    if (!b) {
+        ret = ERROR_KERNEL_STREAM_INIT;
         srs_error("stream param bytes must not be NULL. ret=%d", ret);
         return ret;
     }
     
-    if (_size <= 0) {
-        ret = ERROR_SYSTEM_STREAM_INIT;
+    if (nb <= 0) {
+        ret = ERROR_KERNEL_STREAM_INIT;
         srs_error("stream param size must be positive. ret=%d", ret);
         return ret;
     }
 
-    size = _size;
-    p = bytes = _bytes;
+    nb_bytes = nb;
+    p = bytes = b;
+    srs_info("init stream ok, size=%d", size());
 
     return ret;
 }
 
-void SrsStream::reset()
+char* SrsStream::data()
 {
-    p = bytes;
+    return bytes;
 }
 
-bool SrsStream::empty()
+int SrsStream::size()
 {
-    return !p || !bytes || (p >= bytes + size);
-}
-
-bool SrsStream::require(int required_size)
-{
-    return !empty() && (required_size <= bytes + size - p);
-}
-
-void SrsStream::skip(int size)
-{
-    p += size;
+    return nb_bytes;
 }
 
 int SrsStream::pos()
 {
-    return p - bytes;
+    return (int)(p - bytes);
 }
 
-int SrsStream::left()
+bool SrsStream::empty()
 {
-    return size - pos();
+    return !bytes || (p >= bytes + nb_bytes);
 }
 
-char* SrsStream::current()
+bool SrsStream::require(int required_size)
 {
-    return p;
+    srs_assert(required_size > 0);
+    
+    return required_size <= nb_bytes - (p - bytes);
+}
+
+void SrsStream::skip(int size)
+{
+    srs_assert(p);
+    
+    p += size;
 }
 
 int8_t SrsStream::read_1bytes()
@@ -110,7 +111,7 @@ int16_t SrsStream::read_2bytes()
     srs_assert(require(2));
     
     int16_t value;
-    pp = (char*)&value;
+    char* pp = (char*)&value;
     pp[1] = *p++;
     pp[0] = *p++;
     
@@ -122,7 +123,7 @@ int32_t SrsStream::read_3bytes()
     srs_assert(require(3));
     
     int32_t value = 0x00;
-    pp = (char*)&value;
+    char* pp = (char*)&value;
     pp[2] = *p++;
     pp[1] = *p++;
     pp[0] = *p++;
@@ -135,7 +136,7 @@ int32_t SrsStream::read_4bytes()
     srs_assert(require(4));
     
     int32_t value;
-    pp = (char*)&value;
+    char* pp = (char*)&value;
     pp[3] = *p++;
     pp[2] = *p++;
     pp[1] = *p++;
@@ -149,7 +150,7 @@ int64_t SrsStream::read_8bytes()
     srs_assert(require(8));
     
     int64_t value;
-    pp = (char*)&value;
+    char* pp = (char*)&value;
     pp[7] = *p++;
     pp[6] = *p++;
     pp[5] = *p++;
@@ -194,7 +195,7 @@ void SrsStream::write_2bytes(int16_t value)
 {
     srs_assert(require(2));
     
-    pp = (char*)&value;
+    char* pp = (char*)&value;
     *p++ = pp[1];
     *p++ = pp[0];
 }
@@ -203,7 +204,7 @@ void SrsStream::write_4bytes(int32_t value)
 {
     srs_assert(require(4));
     
-    pp = (char*)&value;
+    char* pp = (char*)&value;
     *p++ = pp[3];
     *p++ = pp[2];
     *p++ = pp[1];
@@ -214,7 +215,7 @@ void SrsStream::write_3bytes(int32_t value)
 {
     srs_assert(require(3));
     
-    pp = (char*)&value;
+    char* pp = (char*)&value;
     *p++ = pp[2];
     *p++ = pp[1];
     *p++ = pp[0];
@@ -224,7 +225,7 @@ void SrsStream::write_8bytes(int64_t value)
 {
     srs_assert(require(8));
     
-    pp = (char*)&value;
+    char* pp = (char*)&value;
     *p++ = pp[7];
     *p++ = pp[6];
     *p++ = pp[5];
@@ -237,7 +238,7 @@ void SrsStream::write_8bytes(int64_t value)
 
 void SrsStream::write_string(string value)
 {
-    srs_assert(require(value.length()));
+    srs_assert(require((int)value.length()));
     
     memcpy(p, value.data(), value.length());
     p += value.length();
@@ -249,5 +250,40 @@ void SrsStream::write_bytes(char* data, int size)
     
     memcpy(p, data, size);
     p += size;
+}
+
+SrsBitStream::SrsBitStream()
+{
+    cb = 0;
+    cb_left = 0;
+    stream = NULL;
+}
+
+SrsBitStream::~SrsBitStream()
+{
+}
+
+int SrsBitStream::initialize(SrsStream* s) {
+    stream = s;
+    return ERROR_SUCCESS;
+}
+
+bool SrsBitStream::empty() {
+    if (cb_left) {
+        return false;
+    }
+    return stream->empty();
+}
+
+int8_t SrsBitStream::read_bit() {
+    if (!cb_left) {
+        srs_assert(!stream->empty());
+        cb = stream->read_1bytes();
+        cb_left = 8;
+    }
+    
+    int8_t v = (cb >> (cb_left - 1)) & 0x01;
+    cb_left--;
+    return v;
 }
 

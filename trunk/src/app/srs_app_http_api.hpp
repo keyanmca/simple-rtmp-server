@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -32,142 +32,182 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #ifdef SRS_AUTO_HTTP_API
 
-class SrsSocket;
-class SrsHttpMessage;
+class SrsStSocket;
+class ISrsHttpMessage;
 class SrsHttpParser;
 class SrsHttpHandler;
 
 #include <srs_app_st.hpp>
 #include <srs_app_conn.hpp>
-#include <srs_app_http.hpp>
+#include <srs_http_stack.hpp>
 
 // for http root.
-class SrsApiRoot : public SrsHttpHandler
+class SrsGoApiRoot : public ISrsHttpHandler
 {
 public:
-    SrsApiRoot();
-    virtual ~SrsApiRoot();
+    SrsGoApiRoot();
+    virtual ~SrsGoApiRoot();
 public:
-    virtual bool is_handler_valid(SrsHttpMessage* req, int& status_code, std::string& reason_phrase);
-protected:
-    virtual bool can_handle(const char* path, int length, const char** pchild);
-    virtual int do_process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsApiApi : public SrsHttpHandler
+class SrsGoApiApi : public ISrsHttpHandler
 {
 public:
-    SrsApiApi();
-    virtual ~SrsApiApi();
+    SrsGoApiApi();
+    virtual ~SrsGoApiApi();
 public:
-    virtual bool can_handle(const char* path, int length, const char** pchild);
-protected:
-    virtual int do_process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsApiV1 : public SrsHttpHandler
+class SrsGoApiV1 : public ISrsHttpHandler
 {
 public:
-    SrsApiV1();
-    virtual ~SrsApiV1();
+    SrsGoApiV1();
+    virtual ~SrsGoApiV1();
 public:
-    virtual bool can_handle(const char* path, int length, const char** pchild);
-protected:
-    virtual int do_process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsApiVersion : public SrsHttpHandler
+class SrsGoApiVersion : public ISrsHttpHandler
 {
 public:
-    SrsApiVersion();
-    virtual ~SrsApiVersion();
+    SrsGoApiVersion();
+    virtual ~SrsGoApiVersion();
 public:
-    virtual bool can_handle(const char* path, int length, const char** pchild);
-protected:
-    virtual int do_process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsApiSummaries : public SrsHttpHandler
+class SrsGoApiSummaries : public ISrsHttpHandler
 {
 public:
-    SrsApiSummaries();
-    virtual ~SrsApiSummaries();
+    SrsGoApiSummaries();
+    virtual ~SrsGoApiSummaries();
 public:
-    virtual bool can_handle(const char* path, int length, const char** pchild);
-protected:
-    virtual int do_process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsApiRusages : public SrsHttpHandler
+class SrsGoApiRusages : public ISrsHttpHandler
 {
 public:
-    SrsApiRusages();
-    virtual ~SrsApiRusages();
+    SrsGoApiRusages();
+    virtual ~SrsGoApiRusages();
 public:
-    virtual bool can_handle(const char* path, int length, const char** pchild);
-protected:
-    virtual int do_process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsApiSelfProcStats : public SrsHttpHandler
+class SrsGoApiSelfProcStats : public ISrsHttpHandler
 {
 public:
-    SrsApiSelfProcStats();
-    virtual ~SrsApiSelfProcStats();
+    SrsGoApiSelfProcStats();
+    virtual ~SrsGoApiSelfProcStats();
 public:
-    virtual bool can_handle(const char* path, int length, const char** pchild);
-protected:
-    virtual int do_process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsApiSystemProcStats : public SrsHttpHandler
+class SrsGoApiSystemProcStats : public ISrsHttpHandler
 {
 public:
-    SrsApiSystemProcStats();
-    virtual ~SrsApiSystemProcStats();
+    SrsGoApiSystemProcStats();
+    virtual ~SrsGoApiSystemProcStats();
 public:
-    virtual bool can_handle(const char* path, int length, const char** pchild);
-protected:
-    virtual int do_process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsApiMemInfos : public SrsHttpHandler
+class SrsGoApiMemInfos : public ISrsHttpHandler
 {
 public:
-    SrsApiMemInfos();
-    virtual ~SrsApiMemInfos();
+    SrsGoApiMemInfos();
+    virtual ~SrsGoApiMemInfos();
 public:
-    virtual bool can_handle(const char* path, int length, const char** pchild);
-protected:
-    virtual int do_process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
-class SrsApiAuthors : public SrsHttpHandler
+class SrsGoApiAuthors : public ISrsHttpHandler
 {
 public:
-    SrsApiAuthors();
-    virtual ~SrsApiAuthors();
+    SrsGoApiAuthors();
+    virtual ~SrsGoApiAuthors();
 public:
-    virtual bool can_handle(const char* path, int length, const char** pchild);
-protected:
-    virtual int do_process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
+};
+
+class SrsGoApiFeatures : public ISrsHttpHandler
+{
+public:
+    SrsGoApiFeatures();
+    virtual ~SrsGoApiFeatures();
+public:
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
+};
+
+class SrsGoApiRequests : public ISrsHttpHandler
+{
+public:
+    SrsGoApiRequests();
+    virtual ~SrsGoApiRequests();
+public:
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
+};
+
+class SrsGoApiVhosts : public ISrsHttpHandler
+{
+public:
+    SrsGoApiVhosts();
+    virtual ~SrsGoApiVhosts();
+public:
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
+};
+
+class SrsGoApiStreams : public ISrsHttpHandler
+{
+public:
+    SrsGoApiStreams();
+    virtual ~SrsGoApiStreams();
+public:
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
+};
+
+class SrsGoApiClients : public ISrsHttpHandler
+{
+public:
+    SrsGoApiClients();
+    virtual ~SrsGoApiClients();
+public:
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
+};
+
+class SrsGoApiError : public ISrsHttpHandler
+{
+public:
+    SrsGoApiError();
+    virtual ~SrsGoApiError();
+public:
+    virtual int serve_http(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
 class SrsHttpApi : public SrsConnection
 {
 private:
     SrsHttpParser* parser;
-    SrsHttpHandler* handler;
-    bool requires_crossdomain;
+    SrsHttpServeMux* mux;
+    bool crossdomain_required;
 public:
-    SrsHttpApi(SrsServer* srs_server, st_netfd_t client_stfd, SrsHttpHandler* _handler);
+    SrsHttpApi(IConnectionManager* cm, st_netfd_t fd, SrsHttpServeMux* m);
     virtual ~SrsHttpApi();
+// interface IKbpsDelta
+public:
+    virtual void resample();
+    virtual int64_t get_send_bytes_delta();
+    virtual int64_t get_recv_bytes_delta();
+    virtual void cleanup();
 protected:
     virtual int do_cycle();
 private:
-    virtual int process_request(SrsSocket* skt, SrsHttpMessage* req);
+    virtual int process_request(ISrsHttpResponseWriter* w, ISrsHttpMessage* r);
 };
 
 #endif
 
 #endif
+

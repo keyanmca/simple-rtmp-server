@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -30,8 +30,14 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <srs_core.hpp>
 
-#include <srs_protocol_io.hpp>
-    
+#include <srs_rtmp_io.hpp>
+#include <srs_librtmp.hpp>
+
+// for srs-librtmp, @see https://github.com/simple-rtmp-server/srs/issues/213
+#ifndef _WIN32
+    #define SOCKET int
+#endif
+
 /**
 * simple socket stream,
 * use tcp socket, sync block mode, for client like srs-librtmp.
@@ -39,20 +45,17 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 class SimpleSocketStream : public ISrsProtocolReaderWriter
 {
 private:
-    int64_t recv_timeout;
-    int64_t send_timeout;
-    int64_t recv_bytes;
-    int64_t send_bytes;
-    int fd;
+    srs_hijack_io_t io;
 public:
     SimpleSocketStream();
     virtual ~SimpleSocketStream();
 public:
+    virtual srs_hijack_io_t hijack_io();
     virtual int create_socket();
     virtual int connect(const char* server, int port);
 // ISrsBufferReader
 public:
-    virtual int read(const void* buf, size_t size, ssize_t* nread);
+    virtual int read(void* buf, size_t size, ssize_t* nread);
 // ISrsProtocolReader
 public:
     virtual void set_recv_timeout(int64_t timeout_us);
@@ -67,8 +70,9 @@ public:
 // ISrsProtocolReaderWriter
 public:
     virtual bool is_never_timeout(int64_t timeout_us);
-    virtual int read_fully(const void* buf, size_t size, ssize_t* nread);
-    virtual int write(const void* buf, size_t size, ssize_t* nwrite);
+    virtual int read_fully(void* buf, size_t size, ssize_t* nread);
+    virtual int write(void* buf, size_t size, ssize_t* nwrite);
 };
 
 #endif
+

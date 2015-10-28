@@ -7,7 +7,7 @@
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: simple-rtmp-server(srs)
-# Description:       https://github.com/winlinvip/simple-rtmp-server
+# Description:       https://github.com/simple-rtmp-server/srs
 ### END INIT INFO
 
 # the config of ROOT, user must modify it when start srs from other directory,
@@ -21,11 +21,11 @@ DEFAULT_LOG_FILE='./objs/srs.demo.log'
 ########################################################################
 # utility functions
 ########################################################################
-RED="\\e[31m"
-GREEN="\\e[32m"
-YELLOW="\\e[33m"
-BLACK="\\e[0m"
-POS="\\e[60G"
+RED="\\033[31m"
+GREEN="\\033[32m"
+YELLOW="\\033[33m"
+BLACK="\\033[0m"
+POS="\\033[60G"
 
 ok_msg() {
     echo -e "${1}${POS}${BLACK}[${GREEN}  OK  ${BLACK}]"

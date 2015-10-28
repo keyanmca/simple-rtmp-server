@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -29,41 +29,17 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 #include <srs_core.hpp>
 
+#include <string>
+
 #ifdef SRS_AUTO_HTTP_CALLBACK
 
 #include <http_parser.h>
 
 class SrsHttpUri;
-class SrsSocket;
+class SrsStSocket;
 class SrsRequest;
 class SrsHttpParser;
 class SrsFlvSegment;
-
-#include <srs_app_st.hpp>
-
-/**
-* http client to GET/POST/PUT/DELETE uri
-*/
-class SrsHttpClient
-{
-private:
-    bool connected;
-    st_netfd_t stfd;
-    SrsHttpParser* parser;
-public:
-    SrsHttpClient();
-    virtual ~SrsHttpClient();
-public:
-    /**
-    * to post data to the uri.
-    * @param req the data post to uri.
-    * @param res the response data from server.
-    */
-    virtual int post(SrsHttpUri* uri, std::string req, std::string& res);
-private:
-    virtual void disconnect();
-    virtual int connect(SrsHttpUri* uri);
-};
 
 /**
 * the http hooks, http callback api,
@@ -79,66 +55,75 @@ public:
 public:
     /**
     * on_connect hook, when client connect to srs.
-    * @param client_id the id of client on server.
     * @param url the api server url, to valid the client. 
     *         ignore if empty.
-    * @return valid failed or connect to the url failed.
     */
-    static int on_connect(std::string url, int client_id, std::string ip, SrsRequest* req);
+    static int on_connect(std::string url, SrsRequest* req);
     /**
     * on_close hook, when client disconnect to srs, where client is valid by on_connect.
-    * @param client_id the id of client on server.
     * @param url the api server url, to process the event. 
     *         ignore if empty.
     */
-    static void on_close(std::string url, int client_id, std::string ip, SrsRequest* req);
+    static void on_close(std::string url, SrsRequest* req, int64_t send_bytes, int64_t recv_bytes);
     /**
     * on_publish hook, when client(encoder) start to publish stream
-    * @param client_id the id of client on server.
     * @param url the api server url, to valid the client. 
     *         ignore if empty.
-    * @return valid failed or connect to the url failed.
     */
-    static int on_publish(std::string url, int client_id, std::string ip, SrsRequest* req);
+    static int on_publish(std::string url, SrsRequest* req);
     /**
     * on_unpublish hook, when client(encoder) stop publish stream.
-    * @param client_id the id of client on server.
     * @param url the api server url, to process the event. 
     *         ignore if empty.
     */
-    static void on_unpublish(std::string url, int client_id, std::string ip, SrsRequest* req);
+    static void on_unpublish(std::string url, SrsRequest* req);
     /**
     * on_play hook, when client start to play stream.
-    * @param client_id the id of client on server.
     * @param url the api server url, to valid the client. 
     *         ignore if empty.
-    * @return valid failed or connect to the url failed.
     */
-    static int on_play(std::string url, int client_id, std::string ip, SrsRequest* req);
+    static int on_play(std::string url, SrsRequest* req);
     /**
     * on_stop hook, when client stop to play the stream.
-    * @param client_id the id of client on server.
     * @param url the api server url, to process the event. 
     *         ignore if empty.
     */
-    static void on_stop(std::string url, int client_id, std::string ip, SrsRequest* req);
-public:
+    static void on_stop(std::string url, SrsRequest* req);
     /**
-    * on_dvr_hss_reap_flv_header hook, when dvr write flv file header.
-    * @param url the api server url, to process the event. 
-    *         ignore if empty.
-    * @param header_file the flv header file.
-    */
-    static void on_dvr_hss_reap_flv_header(std::string url, SrsRequest* req, std::string header_file);
+     * on_dvr hook, when reap a dvr file.
+     * @param url the api server url, to process the event.
+     *         ignore if empty.
+     * @param file the file path, can be relative or absolute path.
+     * @param cid the source connection cid, for the on_dvr is async call.
+     */
+    static int on_dvr(int cid, std::string url, SrsRequest* req, std::string file);
     /**
-    * on_dvr_hss_reap_flv hook, when dvr close flv file.
-    * @param url the api server url, to process the event. 
-    *         ignore if empty.
-    * @param segment the current flv segment.
-    */
-    static void on_dvr_hss_reap_flv(std::string url, SrsRequest* req, SrsFlvSegment* segment);
+     * when hls reap segment, callback.
+     * @param url the api server url, to process the event.
+     *         ignore if empty.
+     * @param file the ts file path, can be relative or absolute path.
+     * @param ts_url the ts url, which used for m3u8.
+     * @param m3u8 the m3u8 file path, can be relative or absolute path.
+     * @param m3u8_url the m3u8 url, which is used for the http mount path.
+     * @param sn the seq_no, the sequence number of ts in hls/m3u8.
+     * @param duration the segment duration in seconds.
+     * @param cid the source connection cid, for the on_dvr is async call.
+     */
+    static int on_hls(int cid, std::string url, SrsRequest* req, std::string file, std::string ts_url, std::string m3u8, std::string m3u8_url, int sn, double duration);
+    /**
+     * when hls reap segment, callback.
+     * @param url the api server url, to process the event.
+     *         ignore if empty.
+     * @param ts_url the ts uri, used to replace the variable [ts_url] in url.
+     * @param nb_notify the max bytes to read from notify server.
+     * @param cid the source connection cid, for the on_dvr is async call.
+     */
+    static int on_hls_notify(int cid, std::string url, SrsRequest* req, std::string ts_url, int nb_notify);
+private:
+    static int do_post(std::string url, std::string req, int& code, std::string& res);
 };
 
 #endif
 
 #endif
+

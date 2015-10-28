@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -51,23 +51,30 @@ public:
     SrsThreadContext();
     virtual ~SrsThreadContext();
 public:
-    virtual void generate_id();
+    virtual int generate_id();
     virtual int get_id();
+    virtual int set_id(int v);
 };
 
 /**
 * we use memory/disk cache and donot flush when write log.
+* it's ok to use it without config, which will log to console, and default trace level.
+* when you want to use different level, override this classs, set the protected _level.
 */
 class SrsFastLog : public ISrsLog, public ISrsReloadHandler
 {
-private:
+// for utest to override
+protected:
     // defined in SrsLogLevel.
     int _level;
+private:
     char* log_data;
     // log to file if specified srs_log_file
     int fd;
     // whether log to file tank
     bool log_to_file_tank;
+    // whether use utc time.
+    bool utc;
 public:
     SrsFastLog();
     virtual ~SrsFastLog();
@@ -78,8 +85,9 @@ public:
     virtual void trace(const char* tag, int context_id, const char* fmt, ...);
     virtual void warn(const char* tag, int context_id, const char* fmt, ...);
     virtual void error(const char* tag, int context_id, const char* fmt, ...);
-// interface ISrsThreadHandler.
+// interface ISrsReloadHandler.
 public:
+    virtual int on_reload_utc_time();
     virtual int on_reload_log_tank();
     virtual int on_reload_log_level();
     virtual int on_reload_log_file();
@@ -90,3 +98,4 @@ private:
 };
 
 #endif
+

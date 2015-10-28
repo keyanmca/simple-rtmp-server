@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -33,39 +33,40 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <vector>
 
 /**
-* the reader for the buffer to read from whatever channel.
+* the simple buffer use vector to append bytes,
+* it's for hls and http, and need to be refined in future.
 */
-class ISrsBufferReader
-{
-public:
-    ISrsBufferReader();
-    virtual ~ISrsBufferReader();
-// for protocol/amf0/msg-codec
-public:
-    virtual int read(const void* buf, size_t size, ssize_t* nread) = 0;
-};
-
-/**
-* the buffer provices bytes cache for protocol. generally, 
-* protocol recv data from socket, put into buffer, decode to RTMP message.
-* protocol encode RTMP message to bytes, put into buffer, send to socket.
-*/
-class SrsBuffer
+class SrsSimpleBuffer
 {
 private:
     std::vector<char> data;
 public:
-    SrsBuffer();
-    virtual ~SrsBuffer();
+    SrsSimpleBuffer();
+    virtual ~SrsSimpleBuffer();
 public:
-    virtual int size();
-    virtual bool empty();
+    /**
+    * get the length of buffer. empty if zero.
+    * @remark assert length() is not negative.
+    */
+    virtual int length();
+    /**
+    * get the buffer bytes.
+    * @return the bytes, NULL if empty.
+    */
     virtual char* bytes();
+    /**
+    * erase size of bytes from begin.
+    * @param size to erase size of bytes. 
+    *       clear if size greater than or equals to length()
+    * @remark ignore size is not positive.
+    */
     virtual void erase(int size);
-    virtual void clear();
+    /**
+    * append specified bytes to buffer.
+    * @param size the size of bytes
+    * @remark assert size is positive.
+    */
     virtual void append(const char* bytes, int size);
-public:
-    virtual int ensure_buffer_bytes(ISrsBufferReader* skt, int required_size);
 };
 
 #endif

@@ -134,6 +134,37 @@ package
             flash.external.ExternalInterface.call(this.js_on_publisher_warn, this.js_id, code);
         }
         
+        // srs infos
+        private var srs_server:String = null;
+        private var srs_primary:String = null;
+        private var srs_authors:String = null;
+        private var srs_id:String = null;
+        private var srs_pid:String = null;
+        private var srs_server_ip:String = null;
+        private function update_context_items():void {
+            // for context menu
+            var customItems:Array = [new ContextMenuItem("SrsPlayer")];
+            if (srs_server != null) {
+                customItems.push(new ContextMenuItem("Server: " + srs_server));
+            }
+            if (srs_primary != null) {
+                customItems.push(new ContextMenuItem("Primary: " + srs_primary));
+            }
+            if (srs_authors != null) {
+                customItems.push(new ContextMenuItem("Authors: " + srs_authors));
+            }
+            if (srs_server_ip != null) {
+                customItems.push(new ContextMenuItem("SrsIp: " + srs_server_ip));
+            }
+            if (srs_pid != null) {
+                customItems.push(new ContextMenuItem("SrsPid: " + srs_pid));
+            }
+            if (srs_id != null) {
+                customItems.push(new ContextMenuItem("SrsId: " + srs_id));
+            }
+            contextMenu.customItems = customItems;
+        }
+        
         /**
          * publish stream to server.
          * @param url a string indicates the rtmp url to publish.
@@ -187,15 +218,25 @@ package
                 trace ("NetConnection: code=" + evt.info.code);
                 
                 if (evt.info.hasOwnProperty("data") && evt.info.data) {
-                    // for context menu
-                    var customItems:Array = [new ContextMenuItem("SrsPlayer")];
                     if (evt.info.data.hasOwnProperty("srs_server")) {
-                        customItems.push(new ContextMenuItem("Server: " + evt.info.data.srs_server));
+                        srs_server = evt.info.data.srs_server;
                     }
-                    if (evt.info.data.hasOwnProperty("srs_primary_authors")) {
-                        customItems.push(new ContextMenuItem("PrimaryAuthors: " + evt.info.data.srs_primary_authors));
+                    if (evt.info.data.hasOwnProperty("srs_primary")) {
+                        srs_primary = evt.info.data.srs_primary;
                     }
-                    contextMenu.customItems = customItems;
+                    if (evt.info.data.hasOwnProperty("srs_authors")) {
+                        srs_authors = evt.info.data.srs_authors;
+                    }
+                    if (evt.info.data.hasOwnProperty("srs_id")) {
+                        srs_id = evt.info.data.srs_id;
+                    }
+                    if (evt.info.data.hasOwnProperty("srs_pid")) {
+                        srs_pid = evt.info.data.srs_pid;
+                    }
+                    if (evt.info.data.hasOwnProperty("srs_server_ip")) {
+                        srs_server_ip = evt.info.data.srs_server_ip;
+                    }
+                    update_context_items();
                 }
 
                 if (evt.info.code == "NetConnection.Connect.Closed") {

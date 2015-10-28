@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -43,14 +43,30 @@ class SrsPithyPrint;
 /**
 * ingester ffmpeg object.
 */
-struct SrsIngesterFFMPEG
+class SrsIngesterFFMPEG
 {
+private:
     std::string vhost;
     std::string id;
     SrsFFMPEG* ffmpeg;
-    
-    SrsIngesterFFMPEG(SrsFFMPEG* _ffmpeg, std::string _vhost, std::string _id);
+    int64_t starttime;
+public:
+    SrsIngesterFFMPEG();
     virtual ~SrsIngesterFFMPEG();
+public:
+    virtual int initialize(SrsFFMPEG* ff, std::string v, std::string i);
+    // the ingest uri, [vhost]/[ingest id]
+    virtual std::string uri();
+    // the alive in ms.
+    virtual int alive();
+    virtual bool equals(std::string v, std::string i);
+    virtual bool equals(std::string v);
+public:
+    virtual int start();
+    virtual void stop();
+    virtual int cycle();
+    // @see SrsFFMPEG.fast_stop().
+    virtual void fast_stop();
 };
 
 /**
@@ -58,20 +74,22 @@ struct SrsIngesterFFMPEG
 * encode with FFMPEG(optional),
 * push to SRS(or any RTMP server) over RTMP.
 */
-class SrsIngester : public ISrsThreadHandler, public ISrsReloadHandler
+class SrsIngester : public ISrsReusableThreadHandler, public ISrsReloadHandler
 {
 private:
     std::vector<SrsIngesterFFMPEG*> ingesters;
 private:
-    SrsThread* pthread;
-    SrsPithyPrint* pithy_print;
+    SrsReusableThread* pthread;
+    SrsPithyPrint* pprint;
 public:
     SrsIngester();
     virtual ~SrsIngester();
 public:
+    virtual void dispose();
+public:
     virtual int start();
     virtual void stop();
-// interface ISrsThreadHandler.
+// interface ISrsReusableThreadHandler.
 public:
     virtual int cycle();
     virtual void on_thread_stop();
@@ -81,7 +99,7 @@ private:
     virtual int parse_ingesters(SrsConfDirective* vhost);
     virtual int parse_engines(SrsConfDirective* vhost, SrsConfDirective* ingest);
     virtual int initialize_ffmpeg(SrsFFMPEG* ffmpeg, SrsConfDirective* vhost, SrsConfDirective* ingest, SrsConfDirective* engine);
-    virtual void ingester();
+    virtual void show_ingest_log_message();
 // interface ISrsReloadHandler.
 public:
     virtual int on_reload_vhost_removed(std::string vhost);
@@ -93,3 +111,4 @@ public:
 
 #endif
 #endif
+

@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -36,6 +36,16 @@ ISrsReloadHandler::~ISrsReloadHandler()
 }
 
 int ISrsReloadHandler::on_reload_listen()
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_utc_time()
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_max_conns()
 {
     return ERROR_SUCCESS;
 }
@@ -95,6 +105,11 @@ int ISrsReloadHandler::on_reload_vhost_http_updated()
     return ERROR_SUCCESS;
 }
 
+int ISrsReloadHandler::on_reload_vhost_http_remux_updated(string vhost)
+{
+    return ERROR_SUCCESS;
+}
+
 int ISrsReloadHandler::on_reload_vhost_added(string /*vhost*/)
 {
     return ERROR_SUCCESS;
@@ -120,6 +135,16 @@ int ISrsReloadHandler::on_reload_vhost_queue_length(string /*vhost*/)
     return ERROR_SUCCESS;
 }
 
+int ISrsReloadHandler::on_reload_vhost_time_jitter(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_vhost_mix_correct(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
 int ISrsReloadHandler::on_reload_vhost_forward(string /*vhost*/)
 {
     return ERROR_SUCCESS;
@@ -130,7 +155,52 @@ int ISrsReloadHandler::on_reload_vhost_hls(string /*vhost*/)
     return ERROR_SUCCESS;
 }
 
+int ISrsReloadHandler::on_reload_vhost_hds(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
 int ISrsReloadHandler::on_reload_vhost_dvr(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_vhost_mr(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_vhost_mw(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_vhost_smi(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_vhost_tcp_nodelay(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_vhost_realtime(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_vhost_p1stpt(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_vhost_pnt(string /*vhost*/)
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_vhost_chunk_size(string /*vhost*/)
 {
     return ERROR_SUCCESS;
 }
@@ -151,6 +221,11 @@ int ISrsReloadHandler::on_reload_ingest_added(string /*vhost*/, string /*ingest_
 }
 
 int ISrsReloadHandler::on_reload_ingest_updated(string /*vhost*/, string /*ingest_id*/)
+{
+    return ERROR_SUCCESS;
+}
+
+int ISrsReloadHandler::on_reload_user_info()
 {
     return ERROR_SUCCESS;
 }

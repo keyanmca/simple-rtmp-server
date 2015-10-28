@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2013-2014 winlin
+Copyright (c) 2013-2015 SRS(simple-rtmp-server)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -44,7 +44,6 @@ g++ -o ts_info ts_info.cc -g -O0 -ansi
 
 #define trace(msg, ...) printf(msg"\n", ##__VA_ARGS__);
 #define srs_freep(p) delete p; p = NULL
-#define srs_freepa(p) delete[] p; p = NULL
 #define srs_assert(p) assert(p)
 #define srs_min(a, b) ((a)<(b)? (a):(b))
 
@@ -641,7 +640,7 @@ TSContext::TSContext()
 
 TSContext::~TSContext()
 {
-    srs_freepa(pids);
+    srs_freep(pids);
     
     std::map<TSPidTable, TSMessage*>::iterator it;
     for (it = msgs.begin(); it != msgs.end(); ++it) {
@@ -684,7 +683,7 @@ void TSContext::push(TSPidTable pid, TSStreamType stream_type, TSPidType type, u
         p[pid_size] = (TSPid){type, stream_type, pid, continuity_counter};
         pid_size++;
         
-        srs_freepa(pids);
+        srs_freep(pids);
         pids = p;
     }
     
@@ -727,7 +726,7 @@ TSMessage::TSMessage()
 
 TSMessage::~TSMessage()
 {
-    srs_freepa(packet_data);
+    srs_freep(packet_data);
 }
 
 void TSMessage::append(u_int8_t*& p, int size)
@@ -803,9 +802,9 @@ TSAdaptionField::TSAdaptionField()
 
 TSAdaptionField::~TSAdaptionField()
 {
-    srs_freepa(transport_private_data);
-    srs_freepa(af_ext_reserved);
-    srs_freepa(af_reserved);
+    srs_freep(transport_private_data);
+    srs_freep(af_ext_reserved);
+    srs_freep(af_reserved);
 }
 
 int TSAdaptionField::get_size()
@@ -967,7 +966,7 @@ TSPayloadReserved::TSPayloadReserved()
 
 TSPayloadReserved::~TSPayloadReserved()
 {
-    srs_freepa(bytes);
+    srs_freep(bytes);
 }
 
 int TSPayloadReserved::demux(TSContext* ctx, TSPacket* pkt, u_int8_t* start, u_int8_t* last, u_int8_t*& p, TSMessage*& pmsg)
@@ -1004,7 +1003,7 @@ TSPayloadPAT::TSPayloadPAT()
 
 TSPayloadPAT::~TSPayloadPAT()
 {
-    srs_freepa(programs);
+    srs_freep(programs);
 }
 
 int TSPayloadPAT::demux(TSContext* ctx, TSPacket* pkt, u_int8_t* start, u_int8_t* last, u_int8_t*& p, TSMessage*& pmsg)
@@ -1069,7 +1068,7 @@ TSPMTESInfo::TSPMTESInfo()
 
 TSPMTESInfo::~TSPMTESInfo()
 {
-    srs_freepa(ES_info);
+    srs_freep(ES_info);
 }
 
 TSPayloadPMT::TSPayloadPMT()
@@ -1091,7 +1090,7 @@ TSPayloadPMT::TSPayloadPMT()
 
 TSPayloadPMT::~TSPayloadPMT()
 {
-    srs_freepa(program_info_desc);
+    srs_freep(program_info_desc);
     
     for (std::vector<TSPMTESInfo*>::iterator it = ES_info.begin(); it != ES_info.end(); ++it) {
         TSPMTESInfo* info = *it;
@@ -1252,10 +1251,10 @@ TSPayloadPES::TSPayloadPES()
 
 TSPayloadPES::~TSPayloadPES()
 {
-    srs_freepa(PES_private_data);
-    srs_freepa(pack_field);
-    srs_freepa(PES_extension_field);
-    srs_freepa(stuffing_byte);
+    srs_freep(PES_private_data);
+    srs_freep(pack_field);
+    srs_freep(PES_extension_field);
+    srs_freep(stuffing_byte);
 }
 
 int64_t TSPayloadPES::decode_33bits_int(u_int8_t*& p, int64_t& temp)
@@ -1540,7 +1539,8 @@ int TSPayloadPES::demux(TSContext* ctx, TSPacket* pkt, u_int8_t* start, u_int8_t
         // for (i = 0; i < PES_packet_length; i++) {
         //         PES_packet_data_byte
         // }
-    } else if (stream_id != PES_padding_stream) {
+        // TODO: FIXME: implements it.
+    } else if (stream_id == PES_padding_stream) {
         // for (i = 0; i < PES_packet_length; i++) {
         //         padding_byte
         // }
@@ -2256,9 +2256,9 @@ int main(int argc, char** argv)
             int64_t pcr = msg->pcr;
             static int64_t last_pcr_dts = 0;
             trace("demuxer+report id=%d, type=%s, size=%d, dts=%d, pts=%d, cts=%d, pcr=%d, dts-pcr=%d, ref=%d, unit=%d, dts(diff-pcr)=%d",
-                ctx.ts_packet_count, (msg->type == TSPidTypeVideo)? "video":"audio", 
-                msg->parsed_packet_size, dts, pts, pts - dts, pcr, pcr? dts - pcr : 0,
-                msg->nal_ref_idc, msg->nal_unit_type, pcr? dts - last_pcr_dts: 0);
+                (int)ctx.ts_packet_count, (msg->type == TSPidTypeVideo)? "video":"audio", 
+                (int)msg->parsed_packet_size, (int)dts, (int)pts, (int)(pts - dts), (int)pcr, (int)(pcr? dts - pcr : 0),
+                (int)msg->nal_ref_idc, (int)msg->nal_unit_type, (int)(pcr? dts - last_pcr_dts: 0));
             if (pcr > 0) {
                 last_pcr_dts = dts;
             }

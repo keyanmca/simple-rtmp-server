@@ -7,7 +7,7 @@
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: simple-rtmp-server(srs)
-# Description:       https://github.com/winlinvip/simple-rtmp-server
+# Description:       https://github.com/simple-rtmp-server/srs
 ### END INIT INFO
 
 # the config of ROOT, user must modify it when start srs from other directory,
@@ -21,11 +21,11 @@ DEFAULT_LOG_FILE='./objs/srs.log'
 ########################################################################
 # utility functions
 ########################################################################
-RED="\\e[31m"
-GREEN="\\e[32m"
-YELLOW="\\e[33m"
-BLACK="\\e[0m"
-POS="\\e[60G"
+RED="\\033[31m"
+GREEN="\\033[32m"
+YELLOW="\\033[33m"
+BLACK="\\033[0m"
+POS="\\033[60G"
 
 ok_msg() {
     echo -e "${1}${POS}${BLACK}[${GREEN}  OK  ${BLACK}]"
@@ -76,9 +76,9 @@ start() {
     
     # TODO: FIXME: set limit by, for instance, "ulimit -HSn 10000"
     if [[ -z $log_file ]]; then
-        (cd ${ROOT}; ${APP} -c ${CONFIG} >/dev/null 2>&1)
+        (ulimit -c unlimited && cd ${ROOT}; ${APP} -c ${CONFIG} >/dev/null 2>&1)
     else
-        (cd ${ROOT}; ${APP} -c ${CONFIG} >> $log_file 2>&1)
+        (ulimit -c unlimited && cd ${ROOT}; ${APP} -c ${CONFIG} >> $log_file 2>&1)
     fi
     
     # check again after start server
@@ -109,12 +109,12 @@ stop() {
     ok_msg "Stopping SRS(pid ${srs_pid})..."
     
     # process exists, try to kill to stop normally
-    for((i=0;i<30;i++)); do
+    for((i=0;i<100;i++)); do
         load_process_info
         if [[ 0 -eq $? ]]; then
             kill -s SIGTERM ${srs_pid} 2>/dev/null
             ret=$?; if [[ 0 -ne $ret ]]; then failed_msg "send signal SIGTERM failed ret=$ret"; return $ret; fi
-            sleep 0.1
+            sleep 0.3
         else
             ok_msg "SRS stopped by SIGTERM"
             # delete the pid file when stop success.
